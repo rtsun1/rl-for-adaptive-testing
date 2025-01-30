@@ -110,7 +110,7 @@ def Choose_Action_Test(item_id, state):
     state = torch.FloatTensor(state.swapaxes(0,1)).to(device)
     action_value = eval_net(state).detach().cpu().numpy()
     if item_id.shape[0] > 0 : action_value[np.tile(np.arange(item_id.shape[1])[np.newaxis, :], (item_id.shape[0],1)), item_id] = np.zeros(item_id.shape)
-    action = action_value.argmax(axis=1)
+    action = action_value.argmax(axis=1)  # (n_items, n_actions)
     return action
 
 ### The function that limits the network parameters to positive, such that the output of Q-network (the expectation of cumulative information) is positive
@@ -332,7 +332,8 @@ item_bank = np.array(pd.read_csv('real item bank.csv')[['a','b','c']])  # (n_ite
 ### Read the real responses and true theta for training
 train_valid_theta = np.array(pd.read_csv('true theta for training.csv'))  # table w/ 1 col: theta scalar. rows: subj_id (n_subj[theta])
 train_valid_resp = np.array(pd.read_csv('real responses for training.csv'))  # table w/ shape: (n_subj, n_items, 1[if answered multiple times?], 1[1 for right 0 for wrong])
-
+train_valid_theta = train_valid_theta.squeeze()
+print(item_bank.shape, train_valid_theta.shape, train_valid_resp.shape)
 ### Create two Q-networks
 eval_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
 target_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
@@ -342,17 +343,17 @@ eval_net.initialize()
 target_net.initialize()
 
 ### Start training phase (including validation) 
-TRAIN(gamma)
+TRAIN(gamma, training_size=200)
 
 
 
-### Load the pre-trained model
-eval_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
+# ### Load the pre-trained model
+# eval_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
 
-network_id = 1
-eval_net = torch.load('dqn_gamma_' + str(gamma) + '_' + str(network_id) + '.t7')
+# network_id = 1
+# eval_net = torch.load('dqn_gamma_' + str(gamma) + '_' + str(network_id) + '.t7')
 
-### Start testing
-test_resp = np.array(pd.read_csv('real responses for testing.csv'))
-theta_test = np.array(pd.read_csv('true theta for testing.csv'))
-TEST(theta_test)
+# ### Start testing
+# test_resp = np.array(pd.read_csv('real responses for testing.csv'))
+# theta_test = np.array(pd.read_csv('true theta for testing.csv'))
+# TEST(theta_test)
