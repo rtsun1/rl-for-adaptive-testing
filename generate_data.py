@@ -37,3 +37,30 @@ thetas.to_csv(true_theta_fname, header=True, index=False)
 print("--Responses--")
 print(resp.head())
 resp.to_csv(resp_fname, header=True, index=False)
+
+
+## tests
+
+test_resp_fname = 'real responses for testing.csv'
+test_theta_fname = 'true theta for testing.csv'
+
+n_test_subj = 5000
+
+# theta
+test_thetas = pd.DataFrame(np.array([
+    np.random.normal(0, 1, n_test_subj)
+])).T
+
+# resp
+test_resp = pd.DataFrame(np.array([
+    np.random.choice([0, 1], n_test_subj) for 
+    _ in range(n_items)
+])).T
+
+print("--Test Thetas--")
+print(test_thetas.head())
+test_thetas.to_csv(test_theta_fname, header=True, index=False)
+
+print("--Test Responses--")
+print(test_resp.head())
+test_resp.to_csv(test_resp_fname, header=True, index=False)

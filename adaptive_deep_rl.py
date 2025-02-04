@@ -11,7 +11,8 @@ import torch.nn.functional as F
 
 ### If there is a GPU, set all training and testing to be done on the GPU, otherwise on the CPU
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
+device = torch.device("mps" if torch.mps.is_available() else "cpu")
+print(device)
 
 ### The function to simulate the examinee and generate the response under 3PLM
 def RESPOND(item_para, theta, D=1):
@@ -264,8 +265,7 @@ def TRAIN(gamma,
 
 
 ### The function to test Q-network
-def TEST(theta_test,
-         testing_size = 5000):
+def TEST(testing_size = 5000):
     
     with torch.no_grad():
         eval_net.eval()
@@ -310,7 +310,7 @@ def TEST(theta_test,
         bias = (theta-theta_test).transpose().reshape(-1, 1)
         dqn_data = np.hstack([user_id, step, item_id, resp, theta_est, bias])
         dqn_data = pd.DataFrame(dqn_data).rename(columns={0:'userID',1:'step',2:'itemID',3:'resp',4:'theta_est',5:'bias'})        
-        dqn_data.to_csv('/records_real_bank_responses_DQN_gamma_' + str(gamma) + '_' + str(best_valid.shape[0]) + '.csv')
+        dqn_data.to_csv('./records_real_bank_responses_DQN_gamma_' + str(gamma) + '_' + str(best_valid.shape[0]) + '.csv')
 
 
 
@@ -334,6 +334,10 @@ train_valid_theta = np.array(pd.read_csv('true theta for training.csv'))  # tabl
 train_valid_resp = np.array(pd.read_csv('real responses for training.csv'))  # table w/ shape: (n_subj, n_items, 1[if answered multiple times?], 1[1 for right 0 for wrong])
 train_valid_theta = train_valid_theta.squeeze()
 print(item_bank.shape, train_valid_theta.shape, train_valid_resp.shape)
+
+test_resp = np.array(pd.read_csv('real responses for testing.csv'))
+theta_test = np.array(pd.read_csv('true theta for testing.csv'))
+theta_test = theta_test.squeeze()
 ### Create two Q-networks
 eval_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
 target_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
@@ -347,13 +351,11 @@ TRAIN(gamma, training_size=200)
 
 
 
-# ### Load the pre-trained model
-# eval_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
+### Load the pre-trained model
+eval_net = Net(input_size, first_hidden, second_hidden, action_space, dropout_rate).to(device)
 
-# network_id = 1
-# eval_net = torch.load('dqn_gamma_' + str(gamma) + '_' + str(network_id) + '.t7')
+network_id = 1
+eval_net = torch.load('dqn_gamma_' + str(gamma) + '_' + str(network_id) + '.t7')
 
-# ### Start testing
-# test_resp = np.array(pd.read_csv('real responses for testing.csv'))
-# theta_test = np.array(pd.read_csv('true theta for testing.csv'))
-# TEST(theta_test)
+### Start testing
+TEST()
