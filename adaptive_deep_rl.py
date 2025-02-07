@@ -320,7 +320,8 @@ test_length = 40
 input_size = 1
 first_hidden = 50
 second_hidden = 30
-action_space = 371  # item bank size
+# action_space = 371  # item bank size
+action_space = 117
 dropout_rate = 0
 
 gamma = 0.1 # The optial gamma value is in the t7 file name
