@@ -1,0 +1,14 @@
+name: cat
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pytorch::pytorch
+  - torchaudio
+  - torchvision
+  - pandas
+  - scipy
+  - ipykernel
+  - tqdm
+  - gymnasium
+prefix: /opt/homebrew/Caskroom/miniforge/base/envs/cat
