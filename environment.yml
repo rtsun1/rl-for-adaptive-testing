@@ -6,9 +6,13 @@ dependencies:
   - pytorch::pytorch
   - torchaudio
   - torchvision
+  - tensorboard
   - pandas
   - scipy
   - ipykernel
   - tqdm
   - gymnasium
+  - tyro
+  - stable-baselines3
+  - wandb
 prefix: /opt/homebrew/Caskroom/miniforge/base/envs/cat
