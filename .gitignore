@@ -1,0 +1,13 @@
+# system
+.DS_Store
+
+# my test
+.venv
+review
+dqn_paper_code
+
+# outdated
+old
+
+# too large
+data
