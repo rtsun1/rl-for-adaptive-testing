@@ -4,6 +4,7 @@ from typing import Callable
 import gymnasium as gym
 import numpy as np
 import torch
+from gymnasium.spaces.utils import flatten
 
 
 def evaluate(
@@ -23,6 +24,7 @@ def evaluate(
     model.eval()
 
     obs, _ = envs.reset()
+    flattened_obs = flatten(envs.single_observation_space, obs)
     episodic_returns = []
     while len(episodic_returns) < eval_episodes:
         if random.random() < epsilon:
@@ -31,7 +33,9 @@ def evaluate(
             )
         else:
             q_values = model(torch.Tensor(obs).to(device))
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()
+            actions = (
+                torch.argmax(q_values, dim=0).cpu().numpy()
+            )  # TODO : change argmax dim?
         next_obs, _, _, _, infos = envs.step(actions)
         if "final_info" in infos:
             for info in infos["final_info"]:

@@ -12,8 +12,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 import tyro
 import cat_env
-from stable_baselines3.common.buffers import ReplayBuffer
+from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+from gymnasium.spaces.utils import flatten
 
 
 @dataclass
@@ -43,7 +44,7 @@ class Args:
     env_id: str = "CAT-v0"
     """the id of the environment"""
     dataset_f: str = "data/test_data.csv"
-    total_timesteps: int = 500000
+    total_timesteps: int = 128  # 500000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
@@ -86,14 +87,16 @@ def make_env(env_id, seed, dataset_f):
 class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
-        print("DEBUG observation_space length: ", len(env.observation_space))
-        print("DEBUG action_space length: ", env.action_space.n)
+
+        # print("DEBUG single_observation_space length: ", len(env.single_observation_space))
+        # print("DEBUG action_space length: ", env.action_space.n)
+
         self.network = nn.Sequential(
-            nn.Linear(np.array(len(env.observation_space)).prod(), 120),
+            nn.Linear(np.array(len(env.single_observation_space)).prod(), 120),
             nn.ReLU(),
             nn.Linear(120, 84),
             nn.ReLU(),
-            nn.Linear(84, env.action_space.n),
+            nn.Linear(84, env.single_action_space.n),
         )
 
     def forward(self, x):
@@ -146,33 +149,39 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
-    # envs = gym.vector.SyncVectorEnv(
-    #     [
-    #         make_env(args.env_id, args.seed + i, args.dataset_f)
-    #         for i in range(args.num_envs)
-    #     ]
-    # )
-    env = gym.make(args.env_id, dataset_f=args.dataset_f)
+    envs = gym.vector.SyncVectorEnv(
+        [
+            make_env(args.env_id, args.seed + i, args.dataset_f)
+            for i in range(args.num_envs)
+        ]
+    )
+    # env = gym.make(args.env_id, dataset_f=args.dataset_f)
     assert isinstance(
-        env.action_space, gym.spaces.Discrete
+        envs.single_action_space, gym.spaces.Discrete
     ), "only discrete action space is supported"
 
-    q_network = QNetwork(env).to(device)
+    q_network = QNetwork(envs).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(env).to(device)
+    target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    rb = ReplayBuffer(
+    # print("DEBUG args.buffer_size : ", args.buffer_size)
+    # print("DEBUG env.single_observation_space : ", env.single_observation_space)
+    # print("DEBUG env.single_action_space : ", env.single_action_space)
+
+    rb = DictReplayBuffer(
         args.buffer_size,
-        env.observation_space,
-        env.action_space,
+        envs.single_observation_space,
+        envs.single_action_space,
         device,
         handle_timeout_termination=False,
     )
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
-    obs, _ = env.reset(seed=args.seed)
+    obs, _ = envs.reset(seed=args.seed)  # TODO : Batched observations
+    flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
+
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(
@@ -181,14 +190,38 @@ if __name__ == "__main__":
             args.exploration_fraction * args.total_timesteps,
             global_step,
         )
+
+        # print("DEBUG obs : ", obs)
+        # print("DEBUG flattened_obs : ", flattened_obs)
+
         if random.random() < epsilon:
-            actions = np.array(env.action_space.sample())
+            actions = np.array(envs.single_action_space.sample()).reshape(
+                1,
+            )
         else:
-            q_values = q_network(torch.Tensor(obs).to(device))
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()
+            q_values = q_network(torch.Tensor(flattened_obs).to(device))
+            # print("DEBUG q_values  : ", q_values)
+            actions = (
+                torch.argmax(
+                    q_values, dim=0
+                )  # TODO : Check if modifying dim to 0 crashes batche
+                .cpu()
+                .numpy()
+                .reshape(
+                    1,
+                )
+            )
+
+        # print(
+        #     "DEBUG actions : ",
+        #     actions.shape,
+        #     actions,
+        #     type(actions),
+        #     type(actions.item()),
+        # )
 
         # TRY NOT TO MODIFY: execute the game and log data.
-        next_obs, rewards, terminations, truncations, infos = env.step(actions)
+        next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -253,7 +286,6 @@ if __name__ == "__main__":
                         + (1.0 - args.tau) * target_network_param.data
                     )
 
-    # TODO : REWRITE IN CASE WE WANT TO SAVE ON HF
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(q_network.state_dict(), model_path)
@@ -287,5 +319,5 @@ if __name__ == "__main__":
     #             f"videos/{run_name}-eval",
     #         )
 
-    env.close()
+    envs.close()
     writer.close()
