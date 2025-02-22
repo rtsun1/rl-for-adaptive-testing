@@ -86,22 +86,20 @@ def loss_fn(x, pred, target, device=torch.device('cuda')):
     #standard_error_loss = torch.nn.functional.mse_loss(pred_standard_err, eap_se)
     return  standard_error_loss + CI_loss + 0.6 * true_loss
 
-def loss_fn_validation(x, pred, target):
+def loss_fn_validation(x, pred, target, loss_type="MSE"):
     pred_ability = torch.reshape(pred[:, 0], target.shape)
     eap, eap_se = calculate_eap_ability(x[:, :, 2], x[:, :, 0], x[:, :, 1])
     eap = torch.reshape(eap.float(), target.shape)
-    print(x.shape)
-    print(eap.shape, target.shape, pred_ability.shape)
-    print(eap)
-    print(target)
-    print(pred_ability)
-    print()
 
-    true_loss = torch.nn.functional.mse_loss(pred_ability, target)
-    loss_true = torch.nn.functional.mse_loss(eap, target)
+    if loss_type == "MSE":
+        true_loss = torch.nn.functional.mse_loss(pred_ability, target)
+        loss_true = torch.nn.functional.mse_loss(eap, target)
+    elif loss_type == "MAE":
+        true_loss = torch.nn.functional.l1_loss(pred_ability, target)
+        loss_true = torch.nn.functional.l1_loss(eap, target)
     return true_loss, loss_true
 
-def validation(model, validation_loader, num_question_range, device):
+def validation(model, validation_loader, num_question_range, device, validation_type="MSE"):
     avg_loss = 0.
     avg_loss_true = 0.
     pbar_val = tqdm.tqdm(validation_loader)
@@ -111,7 +109,7 @@ def validation(model, validation_loader, num_question_range, device):
             x, x_clean = split_into_n_questions(x, num_question_range, device)
             estimate = model(x)
             label = torch.reshape(label, estimate[:, 0].shape)
-            loss, loss_true = loss_fn_validation(x_clean, estimate, label)
+            loss, loss_true = loss_fn_validation(x_clean, estimate, label, validation_type)
             avg_loss += loss.item()
             avg_loss_true += loss_true.item()
 
@@ -172,7 +170,7 @@ def train_ability_level_model(train_loader: DataLoader,
         if epoch % eval_intervals == 0 or epoch == epochs - 1:
             # generate some sample to see the quality of the generative model
             avg_val_loss, avg_true_loss = validation(model, validation_loader, num_question_range, device)
-            print(f'Validation Loss: {avg_val_loss:.3f}, True Loss: {avg_true_loss:.3f}')
+            print(f'Validation Loss: {avg_val_loss:.3f}, Scoring Loss: {avg_true_loss:.3f}')
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 torch.save(model.state_dict(), f'checkpoints_AL_model/val_loss_best.pt')
@@ -183,12 +181,25 @@ def train_ability_level_model(train_loader: DataLoader,
 
 if __name__ == "__main__":
     EPOCHS = 10000
-    BATCH_SIZE = 2048
+    BATCH_SIZE = 32#2048
     NUM_QUESTION_RANGE = [1, 20]
 
     print("Loading data...")
     train, val, test = dl.dataloader_ml(BATCH_SIZE, 1, BATCH_SIZE)
     print("Training model...")
+
     #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE)
-    train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/last_epoch.pt")
+    #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/last_epoch.pt")
     #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/val_loss_best.pt")
+
+    model = RegressionModel().to(torch.device('cuda'))
+    model.load_state_dict(torch.load("checkpoints_AL_model/val_loss_best.pt"))
+    avg_val_loss = 0.
+    avg_true_loss = 0.
+    for i in range(10):
+        val_loss, true_loss = validation(model, val, NUM_QUESTION_RANGE, torch.device('cuda'), "MSE")
+        avg_val_loss += val_loss
+        avg_true_loss += true_loss
+    avg_val_loss /= 10
+    avg_true_loss /= 10
+    print(f'Validation Loss: {avg_val_loss:.3f}, Scoring Loss: {avg_true_loss:.3f}')
