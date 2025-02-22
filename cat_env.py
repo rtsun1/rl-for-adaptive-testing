@@ -3,7 +3,7 @@ import numpy as np
 from typing import Optional
 import pandas as pd
 
-from IRT import calculate_eap_ability
+from IRT import calculate_eap_ability, calculate_fisher_information
 
 class CATEnv(gym.Env):
     def __init__(
@@ -84,7 +84,9 @@ class CATEnv(gym.Env):
         Get the current info
         """
         return {
-            "student_id": self.sid
+            "student_id": self.sid,
+            "dataset": self.dataset,
+            "conversion": self._action_to_idx
         }
     
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
@@ -171,6 +173,8 @@ class CATEnv(gym.Env):
         """
         pass
 
+
+
 # Register the environment
 gym.register(
     id="CAT-v0",
@@ -180,17 +184,48 @@ gym.register(
 if __name__ == "__main__":
     env = gym.make("CAT-v0", dataset_f="data/test_data.csv")
     print(env.observation_space)
+    print(env.observation_space['theta'].sample())
+    print("flag1\n")
     print(env.action_space)
     observation, info = env.reset()
-    print(observation, info)
+    print(observation)
 
+    fischerinf = [0]*117
     episode_over = False
     G = 0
+    
+    initalization = 0
+    action = 0
+    infoout = 0
+    apicked = []
     while not episode_over:
-        action = env.action_space.sample()  # agent policy that uses the observation and info
+        #in
+        if (initalization == 0):
+            action = env.action_space.sample()  # agent policy that uses the observation and info
+            initalization = 1
+            
+        else:
+            for x in range(117):
+                
+                in64ver = np.int64(x)
+
+                #WHY IS THIS BIT OF CODE CAUSING ISSUES
+                # if (x in apicked):
+                #      continue
+                
+                fish1 = calculate_fisher_information(infoout["dataset"],
+                                            infoout["conversion"][in64ver],
+                                            env.observation_space['theta'].sample())
+                fischerinf[x] = fish1
+
+
+        action = np.int64(np.argmax(fischerinf))
+        apicked.append(int(action))
+        print(action)
         observation, reward, terminated, truncated, info = env.step(action)
+        infoout = info
         G += reward
-        print(observation, reward, info)
+        print(observation, reward)
         episode_over = terminated or truncated
 
     env.close()
