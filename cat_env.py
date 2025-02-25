@@ -200,7 +200,7 @@ if __name__ == "__main__":
         # Calculate FI for all items
         for a in range(117):
         
-            # #WHY IS THIS BIT OF CODE CAUSING ISSUES
+            # Skip if the item is already answered
             if a in answered:
                 fisher_inf[a] = -np.inf
                 continue
@@ -209,18 +209,20 @@ if __name__ == "__main__":
                 info["dataset"],
                 info["conversion"][a],
                 theta
-                # env.observation_space['theta'].sample()
             )
 
         # Select the action with the highest FI
-        action = np.int64(np.argmax(fisher_inf))
+        action = np.argmax(fisher_inf)
         answered.add(action)
         observation, reward, terminated, truncated, info = env.step(action)
 
         # Update theta
         theta = observation["theta"][0]
         G += reward
+
+        # Log
         print(action, observation, reward)
+        
         episode_over = terminated or truncated
 
     env.close()
