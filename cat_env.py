@@ -189,43 +189,38 @@ if __name__ == "__main__":
     print(env.action_space)
     observation, info = env.reset()
     print(observation)
+    theta = observation["theta"][0]
 
-    fischerinf = [0]*117
+    fisher_inf = [0]*117
     episode_over = False
     G = 0
     
-    initalization = 0
-    action = 0
-    infoout = 0
-    apicked = []
+    answered = set()
     while not episode_over:
-        #in
-        if (initalization == 0):
-            action = env.action_space.sample()  # agent policy that uses the observation and info
-            initalization = 1
+        # Calculate FI for all items
+        for a in range(117):
+        
+            # #WHY IS THIS BIT OF CODE CAUSING ISSUES
+            if a in answered:
+                fisher_inf[a] = -np.inf
+                continue
             
-        else:
-            for x in range(117):
-                
-                in64ver = np.int64(x)
+            fisher_inf[a] = calculate_fisher_information(
+                info["dataset"],
+                info["conversion"][a],
+                theta
+                # env.observation_space['theta'].sample()
+            )
 
-                #WHY IS THIS BIT OF CODE CAUSING ISSUES
-                # if (x in apicked):
-                #      continue
-                
-                fish1 = calculate_fisher_information(infoout["dataset"],
-                                            infoout["conversion"][in64ver],
-                                            env.observation_space['theta'].sample())
-                fischerinf[x] = fish1
-
-
-        action = np.int64(np.argmax(fischerinf))
-        apicked.append(int(action))
-        print(action)
+        # Select the action with the highest FI
+        action = np.int64(np.argmax(fisher_inf))
+        answered.add(action)
         observation, reward, terminated, truncated, info = env.step(action)
-        infoout = info
+
+        # Update theta
+        theta = observation["theta"][0]
         G += reward
-        print(observation, reward)
+        print(action, observation, reward)
         episode_over = terminated or truncated
 
     env.close()
