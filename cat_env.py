@@ -31,6 +31,7 @@ class CATEnv(gym.Env):
         super().__init__()  # may not be necessary, but it's good practice
 
         self.dataset = self._load_dataset(dataset_f)
+        self.n_items = self.dataset["item_id"].unique().shape[0]
         self.time_taken_s = 0
         self.time_limit_s = time_limit_s
         self.theta = init_theta
@@ -55,8 +56,7 @@ class CATEnv(gym.Env):
         )
 
         # Define action space
-        n_items = self.dataset["item_id"].unique().shape[0]
-        self.action_space = gym.spaces.Discrete(n_items)
+        self.action_space = gym.spaces.Discrete(self.n_items)
 
         self._action_to_idx = {
             action: id for action, id in enumerate(self.dataset["item_id"].unique())
@@ -70,10 +70,12 @@ class CATEnv(gym.Env):
             cols: ["student_id", "item_id", "discrimination", "difficulty", "response", "response_time", "final_score"]
         """
         raw = pd.read_csv(dataset_f)
-        raw = raw.sort_values(by=["student_id", "item_id"])
+        raw = raw.sort_values(by=["student_id", "item_id"])  # so we can access the items in O(1) time
         raw = raw.reset_index(drop=True)
 
         n_items = raw["item_id"].unique().shape[0]
+
+        # NOTE: Assumptions for O(1) lookup: 1. Items are sorted by student_id and item_id, 2. Each student has the same number of items
         if raw.shape[0] % n_items != 0:
             raise ValueError("Each student must have the same number of items")
 
@@ -109,7 +111,8 @@ class CATEnv(gym.Env):
         super().reset(seed=seed)  # For seeding self.np_random
 
         # Select a student
-        self.sid = self.np_random.choice(self.dataset["student_id"].unique())
+        self.sid_idx = self.np_random.integers(self.dataset["student_id"].unique().shape[0])
+        self.sid = self.dataset["student_id"].unique()[self.sid_idx]
 
         # Return the observation and info
         return self._get_obs(), self._get_info()
@@ -138,31 +141,34 @@ class CATEnv(gym.Env):
             )  # NOTE: returning a reward of -1. might need to tune based on the reward function
         # NOTE: Another potential problem above is an infinite loop if the agent keeps selecting the same item (if this reward is better than normal rewards)
 
+        # Get the index range for student (because dataset is sorted by student_id and item_id)
+        start = self.sid_idx * self.n_items
+        stop = (self.sid_idx + 1) * self.n_items
+
         # Otherwise, get the item data
         item = self._action_to_idx[action]
-        item_data = self.dataset[self.dataset["student_id"] == self.sid]
-        item_data = item_data[item_data["item_id"] == item]
+        item_data = self.dataset.iloc[start + action]
         if item_data.empty:
             raise ValueError(
-                f"Item ID {item} not found in the dataset. For student ID {self.sid}"
+                f"Action {action} aka Item ID {item} not found in the dataset. For student ID {self.sid}"
             )
 
         # Extract the item parameters
-        discrimination = item_data["discrimination"].values[0]
-        difficulty = item_data["difficulty"].values[0]
-        response = item_data["response"].values[0]
-        response_time = item_data["response_time"].values[0]
+        discrimination = item_data["discrimination"]
+        difficulty = item_data["difficulty"]
+        response = item_data["response"]
+        response_time = item_data["response_time"]
 
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
         if self.time_taken_s > self.time_limit_s:
-            all_responses = self.dataset[self.dataset["student_id"] == self.sid][
+            all_responses = self.dataset.iloc[start:stop][
                 "response"
-            ].values  # NOTE: could optimize speed by storing the sid's row range if data is sorted
-            all_discrimination = self.dataset[self.dataset["student_id"] == self.sid][
+            ].values
+            all_discrimination = self.dataset[start:stop][
                 "discrimination"
             ].values
-            all_difficulty = self.dataset[self.dataset["student_id"] == self.sid][
+            all_difficulty = self.dataset[start:stop][
                 "difficulty"
             ].values
             true_theta, _ = calculate_eap_ability(
