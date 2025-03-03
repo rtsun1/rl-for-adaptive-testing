@@ -235,8 +235,8 @@ if __name__ == "__main__":
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        if "final_info" in infos:
-            for info in infos["final_info"]:
+        if terminations.any():
+            for info in {info for i, info in enumerate(infos) if terminations[i]}:  # just the terminated infos
                 if info and "episode" in info:
                     print(
                         f"global_step={global_step}, episodic_return={info['episode']['r']}"
