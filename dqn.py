@@ -31,7 +31,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = "aarondom-university-of-alberta"
+    wandb_entity: str = "tonyinbio"
     """the entity (team) of wandb's project"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
@@ -303,16 +303,21 @@ if __name__ == "__main__":
         print(f"model saved to {model_path}")
         from dqn_eval import evaluate
 
+        make_env_args = {
+            "env_id": args.env_id,
+            "seed": 42,  # TODO: doesnt matter?
+            "dataset_f": args.dataset_f,
+        }
         episodic_returns = evaluate(
             model_path,
             make_env,
-            args.env_id,
+            make_env_args,
             eval_episodes=10,
-            run_name=f"{run_name}-eval",
             Model=QNetwork,
             device=device,
             epsilon=0.05,
         )
+        
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
 

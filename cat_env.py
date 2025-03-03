@@ -31,12 +31,18 @@ class CATEnv(gym.Env):
         super().__init__()  # may not be necessary, but it's good practice
 
         self.dataset = self._load_dataset(dataset_f)
-        self.n_items = self.dataset["item_id"].unique().shape[0]
-        self.time_taken_s = 0
+        
+        items = self.dataset["item_id"].unique()
+        self.n_items = items.shape[0]
+        self.students = self.dataset["student_id"].unique()
+
         self.time_limit_s = time_limit_s
-        self.theta = init_theta
+        self.init_theta = init_theta
         self.theta_range = (theta_lb, theta_ub)
 
+        # State variables
+        self.time_taken_s = 0
+        self.theta = self.init_theta
         self.sid = None  # active student id
         self.answered = set()  # items already answered
         self.responses = []  # student responses
@@ -59,7 +65,7 @@ class CATEnv(gym.Env):
         self.action_space = gym.spaces.Discrete(self.n_items)
 
         self._action_to_idx = {
-            action: id for action, id in enumerate(self.dataset["item_id"].unique())
+            action: id for action, id in enumerate(items)
         }
 
     def _load_dataset(self, dataset_f: str) -> pd.DataFrame:
@@ -111,8 +117,16 @@ class CATEnv(gym.Env):
         super().reset(seed=seed)  # For seeding self.np_random
 
         # Select a student
-        self.sid_idx = self.np_random.integers(self.dataset["student_id"].unique().shape[0])
-        self.sid = self.dataset["student_id"].unique()[self.sid_idx]
+        self.sid_idx = self.np_random.integers(self.students.shape[0])
+        self.sid = self.students[self.sid_idx]
+
+        # Reset the state
+        self.time_taken_s = 0
+        self.theta = self.init_theta
+        self.answered = set()  # items already answered
+        self.responses = []  # student responses
+        self.discrimination = []  # item discrimination
+        self.difficulty = []  # item difficulty
 
         # Return the observation and info
         return self._get_obs(), self._get_info()
@@ -131,6 +145,7 @@ class CATEnv(gym.Env):
         """
         # If the item is already answered, return the same observation and info
         # Also make the reward negative to discourage the agent from selecting the same item
+        # print("ANSWERED", self.answered)
         if action in self.answered:
             return (
                 self._get_obs(),
@@ -158,6 +173,7 @@ class CATEnv(gym.Env):
         difficulty = item_data["difficulty"]
         response = item_data["response"]
         response_time = item_data["response_time"]
+        # print(f"Action {action}: time: {response_time}")
 
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
@@ -224,21 +240,24 @@ gym.register(
 )
 
 if __name__ == "__main__":
-    env = gym.make("CAT-v0", dataset_f="data/test_data.csv")
+    env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=60.0)
     print(env.observation_space)
     print(env.action_space)
-    observation, info = env.reset()
-    print(observation, info)
 
-    episode_over = False
-    G = 0
-    while not episode_over:
-        action = (
-            env.action_space.sample()
-        )  # agent policy that uses the observation and info
-        observation, reward, terminated, truncated, info = env.step(action)
-        G += reward
-        print(observation, reward, info)
-        episode_over = terminated or truncated
+    for i in range(10):
+        print(f"Episode {i}")
+        G = 0
+        episode_over = False
+        observation, info = env.reset()
+        # print(observation, info)
+        while not episode_over:
+            action = (
+                env.action_space.sample()
+            )  # agent policy that uses the observation and info
+            observation, reward, terminated, truncated, info = env.step(action)
+            G += reward
+            # print(observation, reward, info)
+            print(info["student_id"], action, reward, observation)
+            episode_over = terminated or truncated
 
     env.close()

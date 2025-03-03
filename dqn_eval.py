@@ -9,15 +9,14 @@ import torch
 def evaluate(
     model_path: str,
     make_env: Callable,
-    env_id: str,
+    make_env_args: dict,
     eval_episodes: int,
-    run_name: str,
     Model: torch.nn.Module,
     device: torch.device = torch.device("cpu"),
     epsilon: float = 0.05,
-    capture_video: bool = True,
 ):
-    envs = gym.vector.SyncVectorEnv([make_env(env_id, 0, 0, capture_video, run_name)])
+    # make_env_args["capture_video"] = make_env_args.get("capture_video", True)
+    envs = gym.vector.SyncVectorEnv([make_env(**make_env_args)])
     model = Model(envs).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
@@ -32,9 +31,12 @@ def evaluate(
         else:
             q_values = model(torch.Tensor(obs).to(device))
             actions = (
-                torch.argmax(q_values, dim=0).cpu().numpy()
-            )  # TODO : change argmax dim?
-        next_obs, _, _, _, infos = envs.step(actions)
+                torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
+            )
+        next_obs, reward, terminations, _, infos = envs.step(actions)
+        # print(envs)
+        # print(infos)
+        print(infos["student_id"][0], terminations[0], actions[0])
         if "final_info" in infos:
             for info in infos["final_info"]:
                 if "episode" not in info:
@@ -49,20 +51,38 @@ def evaluate(
 
 
 if __name__ == "__main__":
-    from huggingface_hub import hf_hub_download
+    # from huggingface_hub import hf_hub_download
 
     from dqn import QNetwork, make_env
-
-    model_path = hf_hub_download(
-        repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
-    )
-    evaluate(
+    model_path = "runs/CAT-v0__dqn__1__1741037693/dqn.cleanrl_model"
+    # model_path = hf_hub_download(
+    #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
+    # )
+    # evaluate(
+    #     model_path,
+    #     make_env,
+    #     "CartPole-v1",
+    #     eval_episodes=10,
+    #     run_name=f"eval",
+    #     Model=QNetwork,
+    #     device="cpu",
+    #     capture_video=False,
+    # )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    make_env_args = {
+        "env_id": "CAT-v0",
+        "seed": 42,
+        "dataset_f": "data/test_data.csv"
+    }
+    episodic_returns = evaluate(
         model_path,
         make_env,
-        "CartPole-v1",
+        make_env_args,
         eval_episodes=10,
-        run_name=f"eval",
         Model=QNetwork,
-        device="cpu",
-        capture_video=False,
+        device=device,
+        epsilon=0.05,
     )
+    print(episodic_returns)
+    # for idx, episodic_return in enumerate(episodic_returns):
+        # writer.add_scalar("eval/episodic_return", episodic_return, idx)
