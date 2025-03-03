@@ -2,6 +2,8 @@ import gymnasium as gym
 import numpy as np
 from typing import Optional
 import pandas as pd
+import math
+import csv
 
 from IRT import calculate_eap_ability, calculate_fisher_information
 
@@ -187,6 +189,10 @@ if __name__ == "__main__":
     print(env.observation_space['theta'].sample())
     print("flag1\n")
     print(env.action_space)
+
+
+
+    
     observation, info = env.reset()
     print(observation)
     theta = observation["theta"][0]
@@ -224,5 +230,25 @@ if __name__ == "__main__":
         print(action, observation, reward)
         
         episode_over = terminated or truncated
+
+    # Theta RMSE:
+    
+
+    '''
+    n = 2
+    ashort = np.array([2,3])
+    along = np.array([1,2])
+
+    summation = np.sum(np.square(np.subtract(ashort, along)))
+
+    rmse = math.sqrt(summation/n)
+    '''
+    
+        
+
+
+
+
+
 
     env.close()
