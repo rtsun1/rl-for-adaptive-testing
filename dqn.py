@@ -27,13 +27,13 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = None
+    wandb_entity: str = "aarondom-university-of-alberta"
     """the entity (team) of wandb's project"""
-    save_model: bool = False
+    save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
     upload_model: bool = False
     """whether to upload the saved model to huggingface"""
@@ -44,13 +44,13 @@ class Args:
     env_id: str = "CAT-v0"
     """the id of the environment"""
     dataset_f: str = "data/test_data.csv"
-    total_timesteps: int = 128  # 500000
+    total_timesteps: int = 5000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 10000
+    buffer_size: int = 500
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -66,7 +66,7 @@ class Args:
     """the ending epsilon for exploration"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 10000
+    learning_starts: int = 100
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
@@ -76,6 +76,7 @@ def make_env(env_id, seed, dataset_f):
     def thunk():
         env = gym.make(env_id, dataset_f=dataset_f)
         env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)
         return env
 
@@ -92,7 +93,7 @@ class QNetwork(nn.Module):
         # print("DEBUG action_space length: ", env.action_space.n)
 
         self.network = nn.Sequential(
-            nn.Linear(np.array(len(env.single_observation_space)).prod(), 120),
+            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
             nn.ReLU(),
             nn.Linear(120, 84),
             nn.ReLU(),
@@ -169,18 +170,27 @@ if __name__ == "__main__":
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
     # print("DEBUG env.single_action_space : ", env.single_action_space)
 
-    rb = DictReplayBuffer(
+    # rb = DictReplayBuffer(
+    #     args.buffer_size,
+    #     envs.single_observation_space,
+    #     envs.single_action_space,
+    #     device,
+    #     handle_timeout_termination=False,
+    # )
+
+    rb = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
         device,
         handle_timeout_termination=False,
     )
+
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)  # TODO : Batched observations
-    flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
+    # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
 
     for global_step in range(args.total_timesteps):
         # ALGO LOGIC: put action logic here
@@ -198,19 +208,20 @@ if __name__ == "__main__":
             actions = np.array(envs.single_action_space.sample()).reshape(
                 1,
             )
+            print("DEBUG : global step ", global_step, " random ", actions)
         else:
-            q_values = q_network(torch.Tensor(flattened_obs).to(device))
+            q_values = q_network(torch.Tensor(obs).to(device))
             # print("DEBUG q_values  : ", q_values)
             actions = (
                 torch.argmax(
-                    q_values, dim=0
+                    q_values, dim=1
                 )  # TODO : Check if modifying dim to 0 crashes batche
                 .cpu()
                 .numpy()
-                .reshape(
-                    1,
-                )
+            ).reshape(
+                1,
             )
+            print("DEBUG : global step ", global_step, " q-network ", actions)
 
         # print(
         #     "DEBUG actions : ",
