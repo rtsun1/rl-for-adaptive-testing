@@ -46,6 +46,8 @@ class Args:
     """the id of the environment"""
     include_answered: bool = False
     """whether to include answered questions as a bit vector in the observation"""
+    mask_answered: bool = False
+    """whether to mask actions that are already answered to -np.inf"""
     dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 5000
     """total timesteps of the experiments"""
@@ -74,6 +76,16 @@ class Args:
     train_frequency: int = 10
     """the frequency of training"""
 
+def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/pdf/2006.14171
+    # Input: answered is an array of sets of answered questions
+    mask = np.ones(shape, dtype=np.int8)  # int8 b/c gym expects this
+    answered = [list(a) for a in answered]
+    if mask.ndim > 1:  # case: making a mask of shape (n_env, n_items)
+        for i in range(mask.shape[0]):
+            mask[i, answered[i]] = 0
+    else:  # case: making a mask of shape (n_items)
+        mask[answered] = 0
+    return mask
 
 def make_env(env_id, seed, dataset_f, include_answered, time_limit_s=20.0):
     def thunk():
@@ -106,14 +118,12 @@ class QNetwork(nn.Module):
         )
 
     def forward(self, x):
-        return self.network(x)
-
+        return self.network(x)  # TODO: implement masking here to allow for differentiable masking
 
 # SCHEDULER :  for epsilon (exploration)
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
-
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -195,7 +205,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # TRY NOT TO MODIFY: start the game
-    obs, _ = envs.reset(seed=args.seed)  # TODO : Batched observations
+    obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
 
     for global_step in range(args.total_timesteps):
@@ -211,12 +221,17 @@ if __name__ == "__main__":
         # print("DEBUG flattened_obs : ", flattened_obs)
 
         if random.random() < epsilon:
-            actions = np.array(envs.single_action_space.sample()).reshape(
-                1,
-            )
+            if args.mask_answered:
+                mask = get_mask(envs.single_action_space.n, infos["answered"])  # masking
+                actions = np.array(envs.single_action_space.sample(mask=mask)).reshape(1)
+            else:
+                actions = np.array(envs.single_action_space.sample()).reshape(1)
             print("DEBUG : global step ", global_step, " random ", actions)
         else:
             q_values = q_network(torch.Tensor(obs).to(device))
+            if args.mask_answered:
+                mask = get_mask(q_values.shape, infos["answered"])  # masking
+                q_values[np.logical_not(mask)] = -np.inf
             # print("DEBUG q_values  : ", q_values)
             actions = (
                 torch.argmax(
@@ -329,7 +344,7 @@ if __name__ == "__main__":
             model_path,
             make_env,
             make_env_args,
-            eval_episodes=100,
+            eval_episodes=1000,
             Model=QNetwork,
             device=device,
             epsilon=0.05,
@@ -347,7 +362,7 @@ if __name__ == "__main__":
 
         writer.add_scalar("eval/RSME", rmse, 0)
         
-        print("RSME: ", rmse)
+        print("RMSE: ", rmse)
 
     #     if args.upload_model:
     #         from cleanrl_utils.huggingface import push_to_hub

@@ -261,7 +261,7 @@ if __name__ == "__main__":
 
     obs, info = env.reset()
  
-    n = 10  # number of students
+    n = 1000  # number of students
     n_items = info["dataset"]["item_id"].unique().shape[0]
     thetas = np.zeros(n)  # estimated thetas
     true_thetas = np.zeros(n)
@@ -317,6 +317,6 @@ if __name__ == "__main__":
     print(true_thetas.round(2))
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
     
-    print("RSME: ", rmse)
+    print("RMSE: ", rmse)
 
     env.close()

@@ -94,7 +94,7 @@ if __name__ == "__main__":
         eval_episodes=1000,
         Model=QNetwork,
         device=device,
-        epsilon=0.05,
+        epsilon=1,
     )
     print(episodic_returns)
 
