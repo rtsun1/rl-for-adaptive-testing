@@ -16,3 +16,4 @@ pisa_data.csv
 runs/*
 __pycache__
 wandb/*
+out
