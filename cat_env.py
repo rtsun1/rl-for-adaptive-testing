@@ -14,7 +14,7 @@ class CATEnv(gym.Env):
         time_limit_s: float = 20.0,
         init_theta: float = 0.0,
         theta_lb: float = -4.0,
-        theta_ub: float = 4.0
+        theta_ub: float = 4.0,
     ):
         """
         Define the observation and action spaces
@@ -30,13 +30,20 @@ class CATEnv(gym.Env):
         theta_ub: upper bound for theta
         """
         super().__init__()  # may not be necessary, but it's good practice
-        
+
         self.dataset = self._load_dataset(dataset_f)
-        self.time_taken_s = 0
+        
+        items = self.dataset["item_id"].unique()
+        self.n_items = items.shape[0]
+        self.students = self.dataset["student_id"].unique()
+
         self.time_limit_s = time_limit_s
-        self.theta = init_theta
+        self.init_theta = init_theta
         self.theta_range = (theta_lb, theta_ub)
 
+        # State variables
+        self.time_taken_s = 0
+        self.theta = self.init_theta
         self.sid = None  # active student id
         self.answered = set()  # items already answered
         self.responses = []  # student responses
@@ -44,16 +51,23 @@ class CATEnv(gym.Env):
         self.difficulty = []  # item difficulty
 
         # Define observation space
-        self.observation_space = gym.spaces.Dict({
-            "theta": gym.spaces.Box(low=theta_lb, high=theta_ub, shape=(1,), dtype=np.float32),  # shape (1,) [NOT ()] is default for Box space with scalar values
-            "time_left": gym.spaces.Box(low=0, high=self.time_limit_s, shape=(1,), dtype=np.float32)
-        })
+        self.observation_space = gym.spaces.Dict(
+            {
+                "theta": gym.spaces.Box(
+                    low=theta_lb, high=theta_ub, shape=(1,), dtype=np.float32
+                ),  # shape (1,) [NOT ()] is default for Box space with scalar values
+                "time_left": gym.spaces.Box(
+                    low=0, high=self.time_limit_s, shape=(1,), dtype=np.float32
+                ),
+            }
+        )
 
         # Define action space
-        n_items = self.dataset["item_id"].unique().shape[0]
-        self.action_space = gym.spaces.Discrete(n_items)
+        self.action_space = gym.spaces.Discrete(self.n_items)
 
-        self._action_to_idx = {action: id for action, id in enumerate(self.dataset["item_id"].unique())}
+        self._action_to_idx = {
+            action: id for action, id in enumerate(items)
+        }
 
     def _load_dataset(self, dataset_f: str) -> pd.DataFrame:
         """
@@ -63,54 +77,64 @@ class CATEnv(gym.Env):
             cols: ["student_id", "item_id", "discrimination", "difficulty", "response", "response_time", "final_score"]
         """
         raw = pd.read_csv(dataset_f)
-        raw = raw.sort_values(by=["student_id", "item_id"])
+        raw = raw.sort_values(by=["student_id", "item_id"])  # so we can access the items in O(1) time
         raw = raw.reset_index(drop=True)
 
         n_items = raw["item_id"].unique().shape[0]
+
+        # NOTE: Assumptions for O(1) lookup: 1. Items are sorted by student_id and item_id, 2. Each student has the same number of items
         if raw.shape[0] % n_items != 0:
             raise ValueError("Each student must have the same number of items")
-        
+
         return raw
-    
+
     def _get_obs(self):
         """
         Get the current observation
         """
         return {
-            "theta": np.array(self.theta, dtype=np.float32).reshape(1),  # NOTE: reshaping to (1,) from () to make it consistent with the Box space
-            "time_left": np.array(self.time_limit_s - self.time_taken_s, dtype=np.float32).reshape(1)
+            "theta": np.array(self.theta, dtype=np.float32).reshape(
+                1
+            ),  # NOTE: reshaping to (1,) from () to make it consistent with the Box space
+            "time_left": np.array(
+                self.time_limit_s - self.time_taken_s, dtype=np.float32
+            ).reshape(1),
         }
-    
+
     def _get_info(self):
         """
         Get the current info
         """
-        return {
-            "student_id": self.sid,
-            "dataset": self.dataset,
-            "conversion": self._action_to_idx,
-            "theta_range": self.theta_range
-        }
-    
+        return {"student_id": self.sid}
+
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
         Initialize a new episode
 
         Start state is no response and time taken is 0.
-        Use seed to select the student. 
+        Use seed to select the student.
         Options currently not used.
         """
         super().reset(seed=seed)  # For seeding self.np_random
 
         # Select a student
-        self.sid = self.np_random.choice(self.dataset["student_id"].unique())
+        self.sid_idx = self.np_random.integers(self.students.shape[0])
+        self.sid = self.students[self.sid_idx]
+
+        # Reset the state
+        self.time_taken_s = 0
+        self.theta = self.init_theta
+        self.answered = set()  # items already answered
+        self.responses = []  # student responses
+        self.discrimination = []  # item discrimination
+        self.difficulty = []  # item difficulty
 
         # Return the observation and info
         return self._get_obs(), self._get_info()
 
     def step(self, action):
         """
-        Take a step in the environment. 
+        Take a step in the environment.
         Update the state (theta and time left) as soon as we get the response.
 
         Returns:
@@ -122,22 +146,35 @@ class CATEnv(gym.Env):
         """
         # If the item is already answered, return the same observation and info
         # Also make the reward negative to discourage the agent from selecting the same item
+        # print("ANSWERED", self.answered)
         if action in self.answered:
-            return self._get_obs(), -1, False, False, self._get_info()  # NOTE: returning a reward of -1. might need to tune based on the reward function
+            return (
+                self._get_obs(),
+                -1,
+                False,
+                False,
+                self._get_info(),
+            )  # NOTE: returning a reward of -1. might need to tune based on the reward function
         # NOTE: Another potential problem above is an infinite loop if the agent keeps selecting the same item (if this reward is better than normal rewards)
-        
+
+        # Get the index range for student (because dataset is sorted by student_id and item_id)
+        start = self.sid_idx * self.n_items
+        stop = (self.sid_idx + 1) * self.n_items
+
         # Otherwise, get the item data
         item = self._action_to_idx[action]
-        item_data = self.dataset[self.dataset["student_id"] == self.sid]
-        item_data = item_data[item_data["item_id"] == item]
+        item_data = self.dataset.iloc[start + action]
         if item_data.empty:
-            raise ValueError(f"Item ID {item} not found in the dataset. For student ID {self.sid}")
-        
+            raise ValueError(
+                f"Action {action} aka Item ID {item} not found in the dataset. For student ID {self.sid}"
+            )
+
         # Extract the item parameters
-        discrimination = item_data["discrimination"].values[0]
-        difficulty = item_data["difficulty"].values[0]
-        response = item_data["response"].values[0]
-        response_time = item_data["response_time"].values[0]
+        discrimination = item_data["discrimination"]
+        difficulty = item_data["difficulty"]
+        response = item_data["response"]
+        response_time = item_data["response_time"]
+        # print(f"Action {action}: time: {response_time}")
 
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
@@ -148,7 +185,7 @@ class CATEnv(gym.Env):
             all_discrimination = self.dataset[self.dataset["student_id"] == self.sid]["discrimination"].values
             all_difficulty = self.dataset[self.dataset["student_id"] == self.sid]["difficulty"].values
             true_theta, _ = calculate_eap_ability(all_responses, all_discrimination, all_difficulty, self.theta_range) 
-            helptruetheta = true_theta
+
             reward = - (true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
             return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
         
@@ -159,10 +196,14 @@ class CATEnv(gym.Env):
         self.difficulty.append(difficulty)
 
         # Calculate the EAP ability
-        self.theta, _ = calculate_eap_ability(self.responses, self.discrimination, self.difficulty, self.theta_range)
+        self.theta, _ = calculate_eap_ability(
+            self.responses, self.discrimination, self.difficulty, self.theta_range
+        )
 
         # Calculate the reward
-        reward = 0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
+        reward = (
+            0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
+        )
 
         return self._get_obs(), reward, False, False, self._get_info()
 
@@ -171,13 +212,12 @@ class CATEnv(gym.Env):
         Render the environment
         """
         pass
-    
+
     def close(self):
         """
         Close the environment
         """
         pass
-
 
 
 # Register the environment
