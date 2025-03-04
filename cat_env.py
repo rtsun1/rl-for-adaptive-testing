@@ -112,7 +112,8 @@ class CATEnv(gym.Env):
             "conversion": self._action_to_idx,
             "theta": self.theta,
             "true_theta": self.true_theta,
-            "average_times": self.average_times
+            "average_times": self.average_times,
+            "answered": self.answered,
         }
     
     def _get_true_theta(self):

@@ -16,6 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
+from cat_wrappers import AnsweredVectorObservation
 
 @dataclass
 class Args:
@@ -75,6 +76,7 @@ class Args:
 def make_env(env_id, seed, dataset_f, time_limit_s=20.0):
     def thunk():
         env = gym.make(env_id, dataset_f=dataset_f, time_limit_s=time_limit_s)
+        env = AnsweredVectorObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # TODO: Does this do anything?
