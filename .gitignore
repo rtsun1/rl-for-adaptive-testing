@@ -12,3 +12,7 @@ old
 # too large
 data
 pisa_data.csv
+
+runs/*
+__pycache__
+wandb/*
