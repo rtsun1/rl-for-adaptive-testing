@@ -20,7 +20,7 @@ class AnsweredVectorObservation(Wrapper):
     
     def _add_answered(self, obs, answered):
         answered = list(answered)  # set to list
-        answered_arr = np.zeros(shape=self.n_items, dtype=np.bool)
+        answered_arr = np.zeros(shape=self.n_items, dtype=bool)
         answered_arr[answered] = True
         obs["answered"] = answered_arr
         return obs
