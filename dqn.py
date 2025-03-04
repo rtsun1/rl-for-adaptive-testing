@@ -72,12 +72,12 @@ class Args:
     """the frequency of training"""
 
 
-def make_env(env_id, seed, dataset_f):
+def make_env(env_id, seed, dataset_f, time_limit_s=20.0):
     def thunk():
-        env = gym.make(env_id, dataset_f=dataset_f)
+        env = gym.make(env_id, dataset_f=dataset_f, time_limit_s=time_limit_s)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
-        env.action_space.seed(seed)
+        env.action_space.seed(seed)  # TODO: Does this do anything?
         return env
 
     return thunk
@@ -317,8 +317,9 @@ if __name__ == "__main__":
             "env_id": args.env_id,
             "seed": 42,  # TODO: doesnt matter?
             "dataset_f": args.dataset_f,
+            "time_limit_s": 20.0,
         }
-        episodic_returns = evaluate(
+        episodic_returns, thetas, true_thetas = evaluate(
             model_path,
             make_env,
             make_env_args,

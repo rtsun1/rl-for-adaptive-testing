@@ -23,6 +23,8 @@ def evaluate(
 
     obs, _ = envs.reset()
     episodic_returns = []
+    thetas = []
+    true_thetas = []
     while len(episodic_returns) < eval_episodes:
         if random.random() < epsilon:
             actions = np.array(
@@ -41,6 +43,9 @@ def evaluate(
         # print(infos["student_id"][0], terminations[0], actions[0])
 
         if done_mask.any():
+            thetas.append(infos["theta"][done_mask].squeeze())
+            true_thetas.append(infos["true_theta"][done_mask].squeeze())
+
             returns = infos["episode"]["r"][done_mask]
             for i in range(returns.shape[0]):
                 print(
@@ -53,7 +58,7 @@ def evaluate(
         else:
             obs = next_obs
 
-    return episodic_returns
+    return episodic_returns, thetas, true_thetas
 
 
 if __name__ == "__main__":
@@ -78,9 +83,10 @@ if __name__ == "__main__":
     make_env_args = {
         "env_id": "CAT-v0",
         "seed": 42,
-        "dataset_f": "data/test_data.csv"
+        "dataset_f": "data/test_data.csv",
+        "time_limit_s": 20.0,
     }
-    episodic_returns = evaluate(
+    episodic_returns, thetas, true_thetas = evaluate(
         model_path,
         make_env,
         make_env_args,
@@ -90,5 +96,15 @@ if __name__ == "__main__":
         epsilon=0.05,
     )
     print(episodic_returns)
+
+    thetas = np.array(thetas)
+    true_thetas = np.array(true_thetas)
+    print("Estimated Thetas:")
+    print(thetas.round(2))
+    print("True Thetas:")
+    print(true_thetas.round(2))
+    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
+    
+    print("RSME: ", rmse)
     # for idx, episodic_return in enumerate(episodic_returns):
         # writer.add_scalar("eval/episodic_return", episodic_return, idx)

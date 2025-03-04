@@ -110,6 +110,7 @@ class CATEnv(gym.Env):
             "student_id": self.sid, 
             "dataset": self.dataset,
             "conversion": self._action_to_idx,
+            "theta": self.theta,
             "true_theta": self.true_theta,
             "average_times": self.average_times
         }
@@ -260,8 +261,8 @@ if __name__ == "__main__":
  
     n = 10  # number of students
     n_items = info["dataset"]["item_id"].unique().shape[0]
-    short_thetas = np.zeros(n)  # short thetas
-    true_thetas = np.zeros(n)   # long Thetas
+    thetas = np.zeros(n)  # estimated thetas
+    true_thetas = np.zeros(n)
     time_aware = False
 
     for x in range(n):  # n students
@@ -304,16 +305,15 @@ if __name__ == "__main__":
         
         # calculate true theta estimate for the current student
         # add to items
-        short_thetas[x] = theta
+        thetas[x] = info["theta"]
         true_thetas[x] = info["true_theta"]
 
     # Theta RMSE:
     print("Estimated Thetas:")
-    print(short_thetas.round(2))
+    print(thetas.round(2))
     print("True Thetas:")
     print(true_thetas.round(2))
-    summation = np.sum((true_thetas - short_thetas) ** 2)
-    rmse = np.sqrt(summation/n)
+    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
     
     print("RSME: ", rmse)
 
