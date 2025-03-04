@@ -2,8 +2,6 @@ import gymnasium as gym
 import numpy as np
 from typing import Optional
 import pandas as pd
-import math
-import csv
 
 from IRT import calculate_eap_ability, calculate_fisher_information
 
@@ -44,6 +42,7 @@ class CATEnv(gym.Env):
         # State variables
         self.time_taken_s = 0
         self.theta = self.init_theta
+        self.true_theta = 0  # init in reset
         self.sid = None  # active student id
         self.answered = set()  # items already answered
         self.responses = []  # student responses
@@ -105,7 +104,36 @@ class CATEnv(gym.Env):
         """
         Get the current info
         """
-        return {"student_id": self.sid, "dataset": self.dataset}
+        return {
+            "student_id": self.sid, 
+            "dataset": self.dataset,
+            "conversion": self._action_to_idx,
+            "true_theta": self.true_theta,
+        }
+    
+    def _get_true_theta(self):
+        """
+        Get the true theta for the student
+        """
+        start = self.sid_idx * self.n_items
+        stop = (self.sid_idx + 1) * self.n_items
+
+        all_responses = self.dataset.iloc[start:stop][
+            "response"
+        ].values
+        all_discrimination = self.dataset[start:stop][
+            "discrimination"
+        ].values
+        all_difficulty = self.dataset[start:stop][
+            "difficulty"
+        ].values
+
+        true_theta, _ = calculate_eap_ability(
+            all_responses, all_discrimination, all_difficulty, self.theta_range
+        )
+
+        return true_theta
+        
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -124,6 +152,7 @@ class CATEnv(gym.Env):
         # Reset the state
         self.time_taken_s = 0
         self.theta = self.init_theta
+        self.true_theta = self._get_true_theta()
         self.answered = set()  # items already answered
         self.responses = []  # student responses
         self.discrimination = []  # item discrimination
@@ -159,7 +188,6 @@ class CATEnv(gym.Env):
 
         # Get the index range for student (because dataset is sorted by student_id and item_id)
         start = self.sid_idx * self.n_items
-        stop = (self.sid_idx + 1) * self.n_items
 
         # Otherwise, get the item data
         item = self._action_to_idx[action]
@@ -178,15 +206,8 @@ class CATEnv(gym.Env):
 
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
-
-        helptruetheta = 0
         if self.time_taken_s > self.time_limit_s:
-            all_responses = self.dataset[self.dataset["student_id"] == self.sid]["response"].values  # NOTE: could optimize speed by storing the sid's row range if data is sorted
-            all_discrimination = self.dataset[self.dataset["student_id"] == self.sid]["discrimination"].values
-            all_difficulty = self.dataset[self.dataset["student_id"] == self.sid]["difficulty"].values
-            true_theta, _ = calculate_eap_ability(all_responses, all_discrimination, all_difficulty, self.theta_range) 
-
-            reward = - (true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
+            reward = - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
             return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
         
         # Otherwise, update the state
@@ -227,24 +248,21 @@ gym.register(
 )
 
 if __name__ == "__main__":
-    env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=60.0)
+    env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=20.0)
     print(env.observation_space)
     print(env.observation_space['theta'].sample())
-    print("flag1\n")
     print(env.action_space)
-
  
-    n =5
-    ashort = np.array([])  #short thetas
-    along = np.array([])   #long Thetas
+    n = 10  # number of students
+    n_items = 117
+    short_thetas = np.zeros(n)  # short thetas
+    true_thetas = np.zeros(n)   # long Thetas
 
-    
-
-    for x in range(n):  #n students. 
-        observation, info = env.reset()  #info gathered each reset
+    for x in range(n):  # n students
+        observation, info = env.reset(seed=42 + x)  # info gathered each reset
         print(observation)
         theta = observation["theta"][0]
-        fisher_inf = [0]*117
+        fisher_inf = np.zeros(n_items)
         episode_over = False
         G = 0
         answered = set()
@@ -253,12 +271,12 @@ if __name__ == "__main__":
         while not episode_over: 
 
             # Calculate FI for all items
-            for a in range(117):
+            for a in range(n_items):
                 # Skip if the item is already answered
                 if a in answered:
                     fisher_inf[a] = -np.inf
                     continue
-                fisher_inf[a] = calculate_fisher_information(
+                fisher_inf[a] = calculate_fisher_information(  # TODO: can speedup by calculating FI for all items at once
                     info["dataset"],
                     info["conversion"][a],
                     theta
@@ -276,32 +294,16 @@ if __name__ == "__main__":
             
             episode_over = terminated or truncated
         
-        #calculate true theta estimate for the current student
-        dataset = info["dataset"]
-        sid = info["student_id"]
-        all_responses = dataset[dataset["student_id"] == sid]["response"].values  # NOTE: could optimize speed by storing the sid's row range if data is sorted
-        all_discrimination = dataset[dataset["student_id"] == sid]["discrimination"].values
-        all_difficulty = dataset[dataset["student_id"] == sid]["difficulty"].values
-        true_theta, _ = calculate_eap_ability(all_responses, all_discrimination, all_difficulty, info["theta_range"]) 
-
-        #add to items
-        np.append(ashort, [theta])
-        np.append(along, [true_theta])
-        print(ashort, along)
+        # calculate true theta estimate for the current student
+        # add to items
+        short_thetas[x] = theta
+        true_thetas[x] = info["true_theta"]
 
     # Theta RMSE:
-    print(ashort, along)
-    summation = np.sum(np.square(np.subtract(ashort, along)))
-    rmse = math.sqrt(summation/n)
+    print(short_thetas, true_thetas)
+    summation = np.sum((true_thetas - short_thetas) ** 2)
+    rmse = np.sqrt(summation/n)
     
     print("RSME: ", rmse)
-    
-    
-        
-
-
-
-
-
 
     env.close()
