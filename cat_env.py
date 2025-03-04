@@ -3,8 +3,7 @@ import numpy as np
 from typing import Optional
 import pandas as pd
 
-from IRT import calculate_eap_ability
-
+from IRT import calculate_eap_ability, calculate_fisher_information
 
 class CATEnv(gym.Env):
     def __init__(
@@ -242,22 +241,45 @@ gym.register(
 if __name__ == "__main__":
     env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=60.0)
     print(env.observation_space)
+    print(env.observation_space['theta'].sample())
+    print("flag1\n")
     print(env.action_space)
+    observation, info = env.reset()
+    print(observation)
+    theta = observation["theta"][0]
 
-    for i in range(10):
-        print(f"Episode {i}")
-        G = 0
-        episode_over = False
-        observation, info = env.reset()
-        # print(observation, info)
-        while not episode_over:
-            action = (
-                env.action_space.sample()
-            )  # agent policy that uses the observation and info
-            observation, reward, terminated, truncated, info = env.step(action)
-            G += reward
-            # print(observation, reward, info)
-            print(info["student_id"], action, reward, observation)
-            episode_over = terminated or truncated
+    fisher_inf = [0]*117
+    episode_over = False
+    G = 0
+    
+    answered = set()
+    while not episode_over:
+        # Calculate FI for all items
+        for a in range(117):
+        
+            # Skip if the item is already answered
+            if a in answered:
+                fisher_inf[a] = -np.inf
+                continue
+            
+            fisher_inf[a] = calculate_fisher_information(
+                info["dataset"],
+                info["conversion"][a],
+                theta
+            )
+
+        # Select the action with the highest FI
+        action = np.argmax(fisher_inf)
+        answered.add(action)
+        observation, reward, terminated, truncated, info = env.step(action)
+
+        # Update theta
+        theta = observation["theta"][0]
+        G += reward
+
+        # Log
+        print(action, observation, reward)
+        
+        episode_over = terminated or truncated
 
     env.close()
