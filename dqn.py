@@ -18,6 +18,8 @@ from gymnasium.spaces.utils import flatten
 
 from cat_wrappers import AnsweredVectorObservation
 
+from tqdm import tqdm
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
@@ -41,6 +43,10 @@ class Args:
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
 
+    # Environment specific arguments
+    time_limit_s: int = 60 * 15
+    """the time limit for each episode/student in seconds"""
+    
     # Algorithm specific arguments
     env_id: str = "CAT-v0"
     """the id of the environment"""
@@ -225,7 +231,7 @@ if __name__ == "__main__":
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
 
-    for global_step in range(args.total_timesteps):
+    for global_step in tqdm(range(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(
             args.start_e,
@@ -243,7 +249,7 @@ if __name__ == "__main__":
                 actions = np.array(envs.single_action_space.sample(mask=mask)).reshape(1)
             else:
                 actions = np.array(envs.single_action_space.sample()).reshape(1)
-            print("DEBUG : global step ", global_step, " random ", actions)
+            # print("DEBUG : global step ", global_step, " random ", actions)
         else:
             q_values = q_network(torch.Tensor(obs).to(device))
             if args.mask_answered:
@@ -259,7 +265,7 @@ if __name__ == "__main__":
             ).reshape(
                 1,
             )
-            print("DEBUG : global step ", global_step, " q-network ", actions)
+            # print("DEBUG : global step ", global_step, " q-network ", actions)
 
         # print(
         #     "DEBUG actions : ",
@@ -271,7 +277,7 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        print(rewards)
+        # print(rewards)
         # Get done envs
         done_mask = np.logical_or(terminations, truncations)
 
@@ -280,7 +286,7 @@ if __name__ == "__main__":
             returns = infos["episode"]["r"][done_mask]
             episode_lengths = infos["episode"]["l"][done_mask]
             for i in range(returns.shape[0]):
-                print(
+                tqdm.write(
                     f"global_step={global_step}, episodic_return={returns[i]}"
                 )
                 writer.add_scalar(
@@ -322,7 +328,7 @@ if __name__ == "__main__":
                     writer.add_scalar(
                         "losses/q_values", old_val.mean().item(), global_step
                     )
-                    print("SPS:", int(global_step / (time.time() - start_time)))
+                    # print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar(
                         "charts/SPS",
                         int(global_step / (time.time() - start_time)),
@@ -390,7 +396,7 @@ if __name__ == "__main__":
             rmse=rmse,
             args=args,
         )
-        print(f"Results saved in runs/{run_name}.npz")
+        print(f"Results saved in runs/{run_name}/results.npz")
         print("Done!")
 
     #     if args.upload_model:

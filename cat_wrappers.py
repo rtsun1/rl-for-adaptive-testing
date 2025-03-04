@@ -33,11 +33,44 @@ class AnsweredVectorObservation(Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
         return self._add_answered(obs, info["answered"]), reward, terminated, truncated, info
     
+class RecordActions(Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        self.actions = []  # a list for each episode
+    
+    def reset(self, *, seed = None, options = None):
+        self.actions.append([])
+        return super().reset(seed=seed, options=options)
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+        if action not in info["answered"]:
+            self.actions[-1].append(action)
+        info["actions"] = self.actions
+        return obs, reward, terminated, truncated, info
+
 if __name__ == "__main__":
-    env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=20.0)
-    env = AnsweredVectorObservation(env)
+    from dataloader import dataset_rl
+    train, val, test = dataset_rl()
+
+    # # AnsweredVectorObservation
+    # env = gym.make("CAT-v0", dataset=val)
+    # env = AnsweredVectorObservation(env)
+    # obs, info = env.reset()
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # obs, reward, terminated, truncated, info = env.step(2)
+    # obs, reward, terminated, truncated, info = env.step(5)
+    # env.close()
+    # print(obs)
+
+    # RecordActions
+    env = gym.make("CAT-v0", dataset=val)
+    env = RecordActions(env)
     obs, info = env.reset()
+    print(info["actions"])
     obs, reward, terminated, truncated, info = env.step(1)
+    print(info["actions"])
     obs, reward, terminated, truncated, info = env.step(2)
     obs, reward, terminated, truncated, info = env.step(5)
-    print(obs)
+    env.close()
+    print(info["actions"])

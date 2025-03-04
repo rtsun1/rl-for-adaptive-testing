@@ -14,8 +14,6 @@ class Args:
     """the name of this experiment"""
     seed: int = 42
     """seed of the experiment"""
-    save_results: bool = True
-    """whether to save results into the `runs/{run_name}` folder"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
 
@@ -131,5 +129,5 @@ if __name__ == "__main__":
         rmse=rmse,
         args=args,
     )
-    print(f"Results saved in runs/{run_name}.npz")
+    print(f"Results saved in runs/{run_name}/results.npz")
     print("Done!")
