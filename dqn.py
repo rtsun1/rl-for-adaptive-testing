@@ -16,6 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
+from cat_wrappers import AnsweredVectorObservation
 
 @dataclass
 class Args:
@@ -43,6 +44,8 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "CAT-v0"
     """the id of the environment"""
+    include_answered: bool = False
+    """whether to include answered questions as a bit vector in the observation"""
     dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 5000
     """total timesteps of the experiments"""
@@ -72,12 +75,14 @@ class Args:
     """the frequency of training"""
 
 
-def make_env(env_id, seed, dataset_f, time_limit_s=20.0):
+def make_env(env_id, seed, dataset_f, include_answered, time_limit_s=20.0):
     def thunk():
         env = gym.make(env_id, dataset_f=dataset_f, time_limit_s=time_limit_s)
+        if include_answered: 
+            env = AnsweredVectorObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
-        env.action_space.seed(seed)  # TODO: Does this do anything?
+        env.action_space.seed(seed)  # for random sampling actions
         return env
 
     return thunk
@@ -152,7 +157,7 @@ if __name__ == "__main__":
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [
-            make_env(args.env_id, args.seed + i, args.dataset_f)
+            make_env(args.env_id, args.seed + i, args.dataset_f, args.include_answered)
             for i in range(args.num_envs)
         ],
         autoreset_mode=gym.vector.AutoresetMode.DISABLED  # see https://farama.org/Vector-Autoreset-Mode
@@ -315,15 +320,16 @@ if __name__ == "__main__":
 
         make_env_args = {
             "env_id": args.env_id,
-            "seed": 42,  # TODO: doesnt matter?
+            "seed": args.seed,  # for random sampling actions
             "dataset_f": args.dataset_f,
             "time_limit_s": 20.0,
+            "include_answered": args.include_answered,
         }
         episodic_returns, thetas, true_thetas = evaluate(
             model_path,
             make_env,
             make_env_args,
-            eval_episodes=10,
+            eval_episodes=100,
             Model=QNetwork,
             device=device,
             epsilon=0.05,
@@ -331,6 +337,17 @@ if __name__ == "__main__":
         
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        thetas = np.array(thetas)
+        true_thetas = np.array(true_thetas)
+        print("Estimated Thetas:")
+        print(thetas.round(2))
+        print("True Thetas:")
+        print(true_thetas.round(2))
+        rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
+
+        writer.add_scalar("eval/RSME", rmse, 0)
+        
+        print("RSME: ", rmse)
 
     #     if args.upload_model:
     #         from cleanrl_utils.huggingface import push_to_hub
