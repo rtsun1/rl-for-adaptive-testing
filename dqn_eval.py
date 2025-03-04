@@ -65,7 +65,7 @@ if __name__ == "__main__":
     # from huggingface_hub import hf_hub_download
 
     from dqn import QNetwork, make_env
-    model_path = "runs/CAT-v0__dqn__1__1741049011/dqn.cleanrl_model"
+    model_path = "runs/CAT-v0__dqn__1__1741064359/dqn.cleanrl_model"
     # model_path = hf_hub_download(
     #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
     # )
@@ -85,15 +85,16 @@ if __name__ == "__main__":
         "seed": 42,
         "dataset_f": "data/test_data.csv",
         "time_limit_s": 20.0,
+        "include_answered": True,
     }
     episodic_returns, thetas, true_thetas = evaluate(
         model_path,
         make_env,
         make_env_args,
-        eval_episodes=10,
+        eval_episodes=1000,
         Model=QNetwork,
         device=device,
-        epsilon=0.05,
+        epsilon=1,
     )
     print(episodic_returns)
 

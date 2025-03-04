@@ -112,7 +112,8 @@ class CATEnv(gym.Env):
             "conversion": self._action_to_idx,
             "theta": self.theta,
             "true_theta": self.true_theta,
-            "average_times": self.average_times
+            "average_times": self.average_times,
+            "answered": self.answered,
         }
     
     def _get_true_theta(self):
@@ -211,7 +212,8 @@ class CATEnv(gym.Env):
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
         if self.time_taken_s > self.time_limit_s:
-            reward = - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
+            # Multiply by 50 to scale the reward relative to -1 reward for answering the same question
+            reward = 50 * - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
             return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
         
         # Otherwise, update the state
@@ -259,7 +261,7 @@ if __name__ == "__main__":
 
     obs, info = env.reset()
  
-    n = 10  # number of students
+    n = 1000  # number of students
     n_items = info["dataset"]["item_id"].unique().shape[0]
     thetas = np.zeros(n)  # estimated thetas
     true_thetas = np.zeros(n)
@@ -315,6 +317,6 @@ if __name__ == "__main__":
     print(true_thetas.round(2))
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
     
-    print("RSME: ", rmse)
+    print("RMSE: ", rmse)
 
     env.close()
