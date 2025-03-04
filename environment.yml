@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.12
+  - pip
   - pytorch::pytorch
   - torchaudio
   - torchvision
@@ -11,8 +12,8 @@ dependencies:
   - scipy
   - ipykernel
   - tqdm
-  - gymnasium
   - tyro
   - stable-baselines3
   - wandb
-prefix: /opt/homebrew/Caskroom/miniforge/base/envs/cat
+  - pip:
+    - gymnasium==1.1.0
