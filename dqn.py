@@ -22,7 +22,7 @@ from cat_wrappers import AnsweredVectorObservation
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 42
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -382,8 +382,16 @@ if __name__ == "__main__":
         print("RMSE: ", rmse)
 
         # Save outputs to runs
-        np.save(f"runs/{run_name}/thetas.npy", thetas)
-        np.save(f"runs/{run_name}/true_thetas.npy", true_thetas)
+        os.makedirs(f"runs/{run_name}", exist_ok=True)
+        np.savez(
+            f"runs/{run_name}/results.npz",
+            thetas=thetas,
+            true_thetas=true_thetas,
+            rmse=rmse,
+            args=args,
+        )
+        print(f"Results saved in runs/{run_name}.npz")
+        print("Done!")
 
     #     if args.upload_model:
     #         from cleanrl_utils.huggingface import push_to_hub
