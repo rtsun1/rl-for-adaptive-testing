@@ -105,7 +105,7 @@ class CATEnv(gym.Env):
         """
         Get the current info
         """
-        return {"student_id": self.sid}
+        return {"student_id": self.sid, "dataset": self.dataset}
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
