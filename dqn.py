@@ -154,7 +154,8 @@ if __name__ == "__main__":
         [
             make_env(args.env_id, args.seed + i, args.dataset_f)
             for i in range(args.num_envs)
-        ]
+        ],
+        autoreset_mode=gym.vector.AutoresetMode.DISABLED  # see https://farama.org/Vector-Autoreset-Mode
     )
     # env = gym.make(args.env_id, dataset_f=args.dataset_f)
     assert isinstance(
@@ -170,7 +171,7 @@ if __name__ == "__main__":
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
     # print("DEBUG env.single_action_space : ", env.single_action_space)
 
-    # rb = DictReplayBuffer(
+    # replay_buffer = DictReplayBuffer(
     #     args.buffer_size,
     #     envs.single_observation_space,
     #     envs.single_action_space,
@@ -178,7 +179,7 @@ if __name__ == "__main__":
     #     handle_timeout_termination=False,
     # )
 
-    rb = ReplayBuffer(
+    replay_buffer = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
@@ -233,35 +234,44 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        print(rewards)
+        # Get done envs
+        done_mask = np.logical_or(terminations, truncations)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
-        if "final_info" in infos:
-            for info in infos["final_info"]:
-                if info and "episode" in info:
-                    print(
-                        f"global_step={global_step}, episodic_return={info['episode']['r']}"
-                    )
-                    writer.add_scalar(
-                        "charts/episodic_return", info["episode"]["r"], global_step
-                    )
-                    writer.add_scalar(
-                        "charts/episodic_length", info["episode"]["l"], global_step
-                    )
+        if done_mask.any():
+            returns = infos["episode"]["r"][done_mask]
+            episode_lengths = infos["episode"]["l"][done_mask]
+            for i in range(returns.shape[0]):
+                print(
+                    f"global_step={global_step}, episodic_return={returns[i]}"
+                )
+                writer.add_scalar(
+                    "charts/episodic_return", returns[i], global_step
+                )
+                writer.add_scalar(
+                    "charts/episodic_length", episode_lengths[i], global_step
+                )
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
-        real_next_obs = next_obs.copy()
-        for idx, trunc in enumerate(truncations):
-            if trunc:
-                real_next_obs[idx] = infos["final_observation"][idx]
-        rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
+        # NOTE: Fixed based on: https://farama.org/Vector-Autoreset-Mode
+        # real_next_obs = next_obs.copy()
+        # for idx, trunc in enumerate(truncations):
+        #     if trunc:
+        #         real_next_obs[idx] = infos["final_observation"][idx]
+        # replay_buffer.add(obs, real_next_obs, actions, rewards, terminations, infos)
+        replay_buffer.add(obs, next_obs, actions, rewards, terminations, infos)  # TODO: Ensure sending terminations and not truncated is correct
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
-        obs = next_obs
+        if done_mask.any():
+            obs, _ = envs.reset(options={"mask": done_mask})
+        else:
+            obs = next_obs
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
-                data = rb.sample(args.batch_size)
+                data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
                     target_max, _ = target_network(data.next_observations).max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max * (

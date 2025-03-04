@@ -16,7 +16,7 @@ def evaluate(
     epsilon: float = 0.05,
 ):
     # make_env_args["capture_video"] = make_env_args.get("capture_video", True)
-    envs = gym.vector.SyncVectorEnv([make_env(**make_env_args)])
+    envs = gym.vector.SyncVectorEnv([make_env(**make_env_args)], gym.vector.AutoresetMode.DISABLED)
     model = Model(envs).to(device)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
@@ -33,19 +33,25 @@ def evaluate(
             actions = (
                 torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
             )
-        next_obs, reward, terminations, _, infos = envs.step(actions)
+        next_obs, reward, terminations, truncations, infos = envs.step(actions)
+
+        done_mask = np.logical_or(terminations, truncations)
         # print(envs)
         # print(infos)
-        print(infos["student_id"][0], terminations[0], actions[0])
-        if "final_info" in infos:
-            for info in infos["final_info"]:
-                if "episode" not in info:
-                    continue
+        # print(infos["student_id"][0], terminations[0], actions[0])
+
+        if done_mask.any():
+            returns = infos["episode"]["r"][done_mask]
+            for i in range(returns.shape[0]):
                 print(
-                    f"eval_episode={len(episodic_returns)}, episodic_return={info['episode']['r']}"
+                    f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
                 )
-                episodic_returns += [info["episode"]["r"]]
-        obs = next_obs
+                episodic_returns += [returns[i]]
+
+        if done_mask.any():
+            obs, _ = envs.reset(options={"mask": done_mask})
+        else:
+            obs = next_obs
 
     return episodic_returns
 
@@ -54,7 +60,7 @@ if __name__ == "__main__":
     # from huggingface_hub import hf_hub_download
 
     from dqn import QNetwork, make_env
-    model_path = "runs/CAT-v0__dqn__1__1741037693/dqn.cleanrl_model"
+    model_path = "runs/CAT-v0__dqn__1__1741049011/dqn.cleanrl_model"
     # model_path = hf_hub_download(
     #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
     # )
