@@ -2,9 +2,10 @@ import gymnasium as gym
 import numpy as np
 from typing import Optional
 import pandas as pd
+import math
+import csv
 
-from IRT import calculate_eap_ability
-
+from IRT import calculate_eap_ability, calculate_fisher_information
 
 class CATEnv(gym.Env):
     def __init__(
@@ -104,7 +105,7 @@ class CATEnv(gym.Env):
         """
         Get the current info
         """
-        return {"student_id": self.sid}
+        return {"student_id": self.sid, "dataset": self.dataset}
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
         """
@@ -177,31 +178,17 @@ class CATEnv(gym.Env):
 
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
+
+        helptruetheta = 0
         if self.time_taken_s > self.time_limit_s:
-            all_responses = self.dataset.iloc[start:stop][
-                "response"
-            ].values
-            all_discrimination = self.dataset[start:stop][
-                "discrimination"
-            ].values
-            all_difficulty = self.dataset[start:stop][
-                "difficulty"
-            ].values
-            true_theta, _ = calculate_eap_ability(
-                all_responses, all_discrimination, all_difficulty, self.theta_range
-            )
+            all_responses = self.dataset[self.dataset["student_id"] == self.sid]["response"].values  # NOTE: could optimize speed by storing the sid's row range if data is sorted
+            all_discrimination = self.dataset[self.dataset["student_id"] == self.sid]["discrimination"].values
+            all_difficulty = self.dataset[self.dataset["student_id"] == self.sid]["difficulty"].values
+            true_theta, _ = calculate_eap_ability(all_responses, all_discrimination, all_difficulty, self.theta_range) 
 
-            reward = -(
-                (true_theta - self.theta) ** 2
-            )  # NOTE: reward is the negative of the squared error in the ability estimate
-            return (
-                self._get_obs(),
-                reward,
-                True,
-                False,
-                self._get_info(),
-            )  # return the error in the ability estimate (from the entire dataset vs the student's responses)
-
+            reward = - (true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
+            return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
+        
         # Otherwise, update the state
         self.answered.add(action)
         self.responses.append(response)
@@ -242,22 +229,79 @@ gym.register(
 if __name__ == "__main__":
     env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=60.0)
     print(env.observation_space)
+    print(env.observation_space['theta'].sample())
+    print("flag1\n")
     print(env.action_space)
 
-    for i in range(10):
-        print(f"Episode {i}")
-        G = 0
+ 
+    n =5
+    ashort = np.array([])  #short thetas
+    along = np.array([])   #long Thetas
+
+    
+
+    for x in range(n):  #n students. 
+        observation, info = env.reset()  #info gathered each reset
+        print(observation)
+        theta = observation["theta"][0]
+        fisher_inf = [0]*117
         episode_over = False
-        observation, info = env.reset()
-        # print(observation, info)
-        while not episode_over:
-            action = (
-                env.action_space.sample()
-            )  # agent policy that uses the observation and info
+        G = 0
+        answered = set()
+
+        ### TRAINING the short Theta over 1 episode
+        while not episode_over: 
+
+            # Calculate FI for all items
+            for a in range(117):
+                # Skip if the item is already answered
+                if a in answered:
+                    fisher_inf[a] = -np.inf
+                    continue
+                fisher_inf[a] = calculate_fisher_information(
+                    info["dataset"],
+                    info["conversion"][a],
+                    theta
+                )
+            # Select the action with the highest FI
+            action = np.argmax(fisher_inf)
+            answered.add(action)
             observation, reward, terminated, truncated, info = env.step(action)
+            
+            # Update theta
+            theta = observation["theta"][0]
             G += reward
-            # print(observation, reward, info)
-            print(info["student_id"], action, reward, observation)
+            # Log
+            print(action, observation, reward)
+            
             episode_over = terminated or truncated
+        
+        #calculate true theta estimate for the current student
+        dataset = info["dataset"]
+        sid = info["student_id"]
+        all_responses = dataset[dataset["student_id"] == sid]["response"].values  # NOTE: could optimize speed by storing the sid's row range if data is sorted
+        all_discrimination = dataset[dataset["student_id"] == sid]["discrimination"].values
+        all_difficulty = dataset[dataset["student_id"] == sid]["difficulty"].values
+        true_theta, _ = calculate_eap_ability(all_responses, all_discrimination, all_difficulty, info["theta_range"]) 
+
+        #add to items
+        np.append(ashort, [theta])
+        np.append(along, [true_theta])
+        print(ashort, along)
+
+    # Theta RMSE:
+    print(ashort, along)
+    summation = np.sum(np.square(np.subtract(ashort, along)))
+    rmse = math.sqrt(summation/n)
+    
+    print("RSME: ", rmse)
+    
+    
+        
+
+
+
+
+
 
     env.close()
