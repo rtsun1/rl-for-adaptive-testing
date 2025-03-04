@@ -35,6 +35,8 @@ class CATEnv(gym.Env):
         self.n_items = items.shape[0]
         self.students = self.dataset["student_id"].unique()
 
+        self.average_times = self.dataset.groupby("item_id")["response_time"].mean().sort_index().to_numpy()
+
         self.time_limit_s = time_limit_s
         self.init_theta = init_theta
         self.theta_range = (theta_lb, theta_ub)
@@ -109,6 +111,7 @@ class CATEnv(gym.Env):
             "dataset": self.dataset,
             "conversion": self._action_to_idx,
             "true_theta": self.true_theta,
+            "average_times": self.average_times
         }
     
     def _get_true_theta(self):
@@ -252,15 +255,18 @@ if __name__ == "__main__":
     print(env.observation_space)
     print(env.observation_space['theta'].sample())
     print(env.action_space)
+
+    obs, info = env.reset()
  
     n = 10  # number of students
-    n_items = 117
+    n_items = info["dataset"]["item_id"].unique().shape[0]
     short_thetas = np.zeros(n)  # short thetas
     true_thetas = np.zeros(n)   # long Thetas
+    time_aware = False
 
     for x in range(n):  # n students
         observation, info = env.reset(seed=42 + x)  # info gathered each reset
-        print(observation)
+        # print(observation)
         theta = observation["theta"][0]
         fisher_inf = np.zeros(n_items)
         episode_over = False
@@ -281,6 +287,8 @@ if __name__ == "__main__":
                     info["conversion"][a],
                     theta
                 )
+            if time_aware:
+                fisher_inf /= info["average_times"]  # divide by avg time to answer the question
             # Select the action with the highest FI
             action = np.argmax(fisher_inf)
             answered.add(action)
@@ -300,7 +308,10 @@ if __name__ == "__main__":
         true_thetas[x] = info["true_theta"]
 
     # Theta RMSE:
-    print(short_thetas, true_thetas)
+    print("Estimated Thetas:")
+    print(short_thetas.round(2))
+    print("True Thetas:")
+    print(true_thetas.round(2))
     summation = np.sum((true_thetas - short_thetas) ** 2)
     rmse = np.sqrt(summation/n)
     
