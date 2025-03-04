@@ -77,7 +77,15 @@ class Args:
     """the frequency of training"""
 
 def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/pdf/2006.14171
-    # Input: answered is an array of sets of answered questions
+    """
+    Return a mask with 1 meaning the question has not been asked.
+    Parameters:
+        shape (ShapeLike): The desired shape of the returned mask.
+        answered (iterable): is an array of sets of answered questions
+    Returns:
+        numpy.ndarray: An array with 1 for unanswered and 0 for answered items.
+    """
+    
     mask = np.ones(shape, dtype=np.int8)  # int8 b/c gym expects this
     answered = [list(a) for a in answered]
     if mask.ndim > 1:  # case: making a mask of shape (n_env, n_items)
