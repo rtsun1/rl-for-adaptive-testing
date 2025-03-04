@@ -1,4 +1,19 @@
+# system
+.DS_Store
+
+# my test
+.venv
+review
+dqn_paper_code
+
+# outdated
+old
+
+# too large
+data
+pisa_data.csv
+
 runs/*
-__pycache__/*
+__pycache__
 wandb/*
 out
