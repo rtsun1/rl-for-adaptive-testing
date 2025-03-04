@@ -9,7 +9,7 @@ class CATEnv(gym.Env):
     def __init__(
         self,
         dataset: pd.DataFrame,
-        time_limit_s: float = 600.0,
+        time_limit_s: float = 60.0 * 15,  # 15 minutes
         init_theta: float = 0.0,
         theta_lb: float = -4.0,
         theta_ub: float = 4.0,
@@ -260,14 +260,15 @@ if __name__ == "__main__":
     from dqn import get_mask
 
     train_data, val_data, test_data = dataset_rl()
-    env = gym.make("CAT-v0", dataset=val_data, time_limit_s=600.0)
+    env = gym.make("CAT-v0", dataset=val_data, time_limit_s=60 * 15)  # 15 minutes
     print(env.observation_space)
     print(env.observation_space['theta'].sample())
     print(env.action_space)
 
+    # Greedy FI Algorithm
     obs, info = env.reset()
 
-    n = 5  # number of students
+    n = 1  # number of students
     n_items = info["dataset"]["item_id"].unique().shape[0]
     diffs = info["dataset"]["difficulty"].unique()  # unique preserves order of appearance
     discs = info["dataset"]["discrimination"].unique()

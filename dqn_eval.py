@@ -65,6 +65,7 @@ if __name__ == "__main__":
     # from huggingface_hub import hf_hub_download
 
     from dqn import QNetwork, make_env
+    from dataloader import dataset_rl
     model_path = "runs/CAT-v0__dqn__1__1741064359/dqn.cleanrl_model"
     # model_path = hf_hub_download(
     #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
@@ -80,11 +81,12 @@ if __name__ == "__main__":
     #     capture_video=False,
     # )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    train_data, val_data, test_data = dataset_rl()
     make_env_args = {
         "env_id": "CAT-v0",
         "seed": 42,
-        "dataset_f": "data/test_data.csv",
-        "time_limit_s": 20.0,
+        "dataset": val_data,
+        "time_limit_s": 60 * 15,  # 15 minutes
         "include_answered": True,
     }
     episodic_returns, thetas, true_thetas = evaluate(

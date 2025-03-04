@@ -48,7 +48,7 @@ class Args:
     """whether to include answered questions as a bit vector in the observation"""
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
-    dataset_f: str = "data/test_data.csv"
+    # dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 5000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
@@ -76,6 +76,12 @@ class Args:
     train_frequency: int = 10
     """the frequency of training"""
 
+    # Evaluation specific arguments
+    eval_episodes: int = 100
+    """the number of episodes to evaluate"""
+    eval_epsilon: float = 0.05
+    """the epsilon for evaluation"""
+
 def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/pdf/2006.14171
     """
     Return a mask with 1 meaning the question has not been asked.
@@ -95,9 +101,9 @@ def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/p
         mask[answered] = 0
     return mask
 
-def make_env(env_id, seed, dataset_f, include_answered, time_limit_s=20.0):
+def make_env(env_id, seed, dataset, include_answered, time_limit_s=60 * 15):
     def thunk():
-        env = gym.make(env_id, dataset_f=dataset_f, time_limit_s=time_limit_s)
+        env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered: 
             env = AnsweredVectorObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
@@ -135,6 +141,7 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
+    from dataloader import dataset_rl
 
     if sb3.__version__ < "2.0":
         raise ValueError(
@@ -164,6 +171,8 @@ if __name__ == "__main__":
         % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
 
+    train_data, val_data, test_data = dataset_rl()
+
     # TRY NOT TO MODIFY: seeding
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -175,7 +184,7 @@ if __name__ == "__main__":
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [
-            make_env(args.env_id, args.seed + i, args.dataset_f, args.include_answered)
+            make_env(args.env_id, args.seed + i, train_data, args.include_answered)
             for i in range(args.num_envs)
         ],
         autoreset_mode=gym.vector.AutoresetMode.DISABLED  # see https://farama.org/Vector-Autoreset-Mode
@@ -344,18 +353,18 @@ if __name__ == "__main__":
         make_env_args = {
             "env_id": args.env_id,
             "seed": args.seed,  # for random sampling actions
-            "dataset_f": args.dataset_f,
-            "time_limit_s": 20.0,
+            "dataset": val_data,
+            "time_limit_s": 60.0 * 15,  # 15 minutes
             "include_answered": args.include_answered,
         }
         episodic_returns, thetas, true_thetas = evaluate(
             model_path,
             make_env,
             make_env_args,
-            eval_episodes=1000,
+            eval_episodes=args.eval_episodes,
             Model=QNetwork,
             device=device,
-            epsilon=0.05,
+            epsilon=args.eval_epsilon,
         )
         
         for idx, episodic_return in enumerate(episodic_returns):
@@ -371,6 +380,10 @@ if __name__ == "__main__":
         writer.add_scalar("eval/RSME", rmse, 0)
         
         print("RMSE: ", rmse)
+
+        # Save outputs to runs
+        np.save(f"runs/{run_name}/thetas.npy", thetas)
+        np.save(f"runs/{run_name}/true_thetas.npy", true_thetas)
 
     #     if args.upload_model:
     #         from cleanrl_utils.huggingface import push_to_hub
