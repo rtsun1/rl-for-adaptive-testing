@@ -30,9 +30,9 @@ def dataset_rl():
     Creates training data for the rl model
 
     Returns:
-        A tuple (train_set : pd dataframe,
-                 val_set : pd dataframe,
-                 test_set : pd dataframe
+        A tuple: (train_set: pd.dataframe,
+                 val_set: pd.dataframe,
+                 test_set: pd.dataframe
                 )
     '''
 

@@ -3,13 +3,13 @@ import numpy as np
 from typing import Optional
 import pandas as pd
 
-from IRT import calculate_eap_ability, calculate_fisher_information
+from IRT import calculate_eap_ability
 
 class CATEnv(gym.Env):
     def __init__(
         self,
-        dataset_f: str,
-        time_limit_s: float = 20.0,
+        dataset: pd.DataFrame,
+        time_limit_s: float = 60.0 * 15,  # 15 minutes
         init_theta: float = 0.0,
         theta_lb: float = -4.0,
         theta_ub: float = 4.0,
@@ -21,7 +21,7 @@ class CATEnv(gym.Env):
 
         Action space: [0, MAX_Q]
 
-        dataset_f: path to the dataset file
+        dataset: pd.DataFrame with columns ["student_id", "item_id", "discrimination", "difficulty", "response", "response_time", "final_score"]
         time_limit_s: max time for a test in seconds
         init_theta: initial ability estimate
         theta_lb: lower bound for theta
@@ -29,7 +29,7 @@ class CATEnv(gym.Env):
         """
         super().__init__()  # may not be necessary, but it's good practice
 
-        self.dataset = self._load_dataset(dataset_f)
+        self.dataset = self._sort_dataset(dataset)
         
         items = self.dataset["item_id"].unique()
         self.n_items = items.shape[0]
@@ -70,14 +70,13 @@ class CATEnv(gym.Env):
             action: id for action, id in enumerate(items)
         }
 
-    def _load_dataset(self, dataset_f: str) -> pd.DataFrame:
+    def _sort_dataset(self, raw: pd.DataFrame) -> pd.DataFrame:
         """
-        Load the dataset
+        Sort the dataset (raw)
 
         return: DataFrame sorted by student_id and item_id
             cols: ["student_id", "item_id", "discrimination", "difficulty", "response", "response_time", "final_score"]
         """
-        raw = pd.read_csv(dataset_f)
         raw = raw.sort_values(by=["student_id", "item_id"])  # so we can access the items in O(1) time
         raw = raw.reset_index(drop=True)
 
@@ -212,6 +211,7 @@ class CATEnv(gym.Env):
         # If the student couldn't answer the question before time ran out, terminate the episode
         self.time_taken_s += response_time
         if self.time_taken_s > self.time_limit_s:
+            self.time_taken_s = self.time_limit_s  # cap the time to be within the observation space
             # Multiply by 50 to scale the reward relative to -1 reward for answering the same question
             reward = 50 * - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
             return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
@@ -254,15 +254,24 @@ gym.register(
 )
 
 if __name__ == "__main__":
-    env = gym.make("CAT-v0", dataset_f="data/test_data.csv", time_limit_s=20.0)
+    from dataloader import dataset_rl
+    from IRT import batch_fisher_information
+    import time
+    from dqn import get_mask
+
+    train_data, val_data, test_data = dataset_rl()
+    env = gym.make("CAT-v0", dataset=val_data, time_limit_s=60 * 15)  # 15 minutes
     print(env.observation_space)
     print(env.observation_space['theta'].sample())
     print(env.action_space)
 
+    # Greedy FI Algorithm
     obs, info = env.reset()
- 
-    n = 1000  # number of students
+
+    n = 1  # number of students
     n_items = info["dataset"]["item_id"].unique().shape[0]
+    diffs = info["dataset"]["difficulty"].unique()  # unique preserves order of appearance
+    discs = info["dataset"]["discrimination"].unique()
     thetas = np.zeros(n)  # estimated thetas
     true_thetas = np.zeros(n)
     time_aware = False
@@ -280,16 +289,12 @@ if __name__ == "__main__":
         while not episode_over: 
 
             # Calculate FI for all items
-            for a in range(n_items):
-                # Skip if the item is already answered
-                if a in answered:
-                    fisher_inf[a] = -np.inf
-                    continue
-                fisher_inf[a] = calculate_fisher_information(  # TODO: can speedup by calculating FI for all items at once
-                    info["dataset"],
-                    info["conversion"][a],
-                    theta
-                )
+            # toc = time.time()
+            fisher_inf = batch_fisher_information(diffs, discs, theta)
+            mask = get_mask(n_items, [answered])  # get_mask assumes answered is from a vector env so wrap with []
+            fisher_inf[np.logical_not(mask)] = -np.inf
+            # tic = time.time()
+            # print(tic - toc)
             if time_aware:
                 fisher_inf /= info["average_times"]  # divide by avg time to answer the question
             # Select the action with the highest FI
