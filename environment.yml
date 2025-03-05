@@ -15,5 +15,6 @@ dependencies:
   - tyro
   - stable-baselines3
   - wandb
+  - seaborn
   - pip:
     - gymnasium==1.1.0
