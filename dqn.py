@@ -20,6 +20,7 @@ from cat_wrappers import AnsweredVectorObservation
 
 from tqdm import tqdm
 
+
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
@@ -34,7 +35,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = "tonyinbio"
+    wandb_entity: str = "aarondom-university-of-alberta"
     """the entity (team) of wandb's project"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
@@ -46,7 +47,7 @@ class Args:
     # Environment specific arguments
     time_limit_s: int = 60 * 15
     """the time limit for each episode/student in seconds"""
-    
+
     # Algorithm specific arguments
     env_id: str = "CAT-v0"
     """the id of the environment"""
@@ -55,13 +56,13 @@ class Args:
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
     # dataset_f: str = "data/test_data.csv"
-    total_timesteps: int = 5000
+    total_timesteps: int = 500000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 500
+    buffer_size: int = 10000
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -77,7 +78,7 @@ class Args:
     """the ending epsilon for exploration"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 100
+    learning_starts: int = 10000
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
@@ -88,7 +89,10 @@ class Args:
     eval_epsilon: float = 0.05
     """the epsilon for evaluation"""
 
-def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/pdf/2006.14171
+
+def get_mask(
+    shape, answered
+):  # Masking is differentiable: https://arxiv.org/pdf/2006.14171
     """
     Return a mask with 1 meaning the question has not been asked.
     Parameters:
@@ -97,7 +101,7 @@ def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/p
     Returns:
         numpy.ndarray: An array with 1 for unanswered and 0 for answered items.
     """
-    
+
     mask = np.ones(shape, dtype=np.int8)  # int8 b/c gym expects this
     answered = [list(a) for a in answered]
     if mask.ndim > 1:  # case: making a mask of shape (n_env, n_items)
@@ -107,10 +111,11 @@ def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/p
         mask[answered] = 0
     return mask
 
+
 def make_env(env_id, seed, dataset, include_answered, time_limit_s=60 * 15):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
-        if include_answered: 
+        if include_answered:
             env = AnsweredVectorObservation(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
@@ -138,12 +143,16 @@ class QNetwork(nn.Module):
         )
 
     def forward(self, x):
-        return self.network(x)  # TODO: implement masking here to allow for differentiable masking
+        return self.network(
+            x
+        )  # TODO: implement masking here to allow for differentiable masking
+
 
 # SCHEDULER :  for epsilon (exploration)
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
+
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -193,7 +202,7 @@ if __name__ == "__main__":
             make_env(args.env_id, args.seed + i, train_data, args.include_answered)
             for i in range(args.num_envs)
         ],
-        autoreset_mode=gym.vector.AutoresetMode.DISABLED  # see https://farama.org/Vector-Autoreset-Mode
+        autoreset_mode=gym.vector.AutoresetMode.DISABLED,  # see https://farama.org/Vector-Autoreset-Mode
     )
     # env = gym.make(args.env_id, dataset_f=args.dataset_f)
     assert isinstance(
@@ -245,8 +254,12 @@ if __name__ == "__main__":
 
         if random.random() < epsilon:
             if args.mask_answered:
-                mask = get_mask(envs.single_action_space.n, infos["answered"])  # masking
-                actions = np.array(envs.single_action_space.sample(mask=mask)).reshape(1)
+                mask = get_mask(
+                    envs.single_action_space.n, infos["answered"]
+                )  # masking
+                actions = np.array(envs.single_action_space.sample(mask=mask)).reshape(
+                    1
+                )
             else:
                 actions = np.array(envs.single_action_space.sample()).reshape(1)
             # print("DEBUG : global step ", global_step, " random ", actions)
@@ -286,12 +299,8 @@ if __name__ == "__main__":
             returns = infos["episode"]["r"][done_mask]
             episode_lengths = infos["episode"]["l"][done_mask]
             for i in range(returns.shape[0]):
-                tqdm.write(
-                    f"global_step={global_step}, episodic_return={returns[i]}"
-                )
-                writer.add_scalar(
-                    "charts/episodic_return", returns[i], global_step
-                )
+                tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
+                writer.add_scalar("charts/episodic_return", returns[i], global_step)
                 writer.add_scalar(
                     "charts/episodic_length", episode_lengths[i], global_step
                 )
@@ -303,7 +312,9 @@ if __name__ == "__main__":
         #     if trunc:
         #         real_next_obs[idx] = infos["final_observation"][idx]
         # replay_buffer.add(obs, real_next_obs, actions, rewards, terminations, infos)
-        replay_buffer.add(obs, next_obs, actions, rewards, terminations, infos)  # TODO: Ensure sending terminations and not truncated is correct
+        replay_buffer.add(
+            obs, next_obs, actions, rewards, terminations, infos
+        )  # TODO: Ensure sending terminations and not truncated is correct
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         if done_mask.any():
@@ -372,7 +383,7 @@ if __name__ == "__main__":
             device=device,
             epsilon=args.eval_epsilon,
         )
-        
+
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
         thetas = np.array(thetas)
@@ -384,7 +395,7 @@ if __name__ == "__main__":
         rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
 
         writer.add_scalar("eval/RSME", rmse, 0)
-        
+
         print("RMSE: ", rmse)
 
         # Save outputs to runs
