@@ -7,6 +7,7 @@ import torch
 
 
 def evaluate(
+    model,
     model_path: str,
     make_env: Callable,
     make_env_args: dict,
@@ -17,8 +18,9 @@ def evaluate(
 ):
     # make_env_args["capture_video"] = make_env_args.get("capture_video", True)
     envs = gym.vector.SyncVectorEnv([make_env(**make_env_args)], gym.vector.AutoresetMode.DISABLED)
-    model = Model(envs).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    if model == None:
+        model = Model(envs).to(device)
+        model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
     obs, _ = envs.reset()
@@ -57,6 +59,9 @@ def evaluate(
             obs, _ = envs.reset(options={"mask": done_mask})
         else:
             obs = next_obs
+    
+    # eval done, start train
+    model.train()
 
     return episodic_returns, thetas, true_thetas
 

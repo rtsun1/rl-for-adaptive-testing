@@ -364,29 +364,25 @@ if __name__ == "__main__":
                         + (1.0 - args.tau) * target_network_param.data
                     )
 
-        if args.save_model and global_step % args.eval_frequency == 0:
-            model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
-            torch.save(q_network.state_dict(), model_path)
-            print(f"model saved to {model_path}")
-            # from dqn_eval import evaluate
-
+        # PERIODICALLY EVAL
+        if global_step % args.eval_frequency == 0:
             make_env_args = {
-                "env_id": args.env_id,
-                "seed": args.seed,  # for random sampling actions
-                "dataset": val_data,
-                "time_limit_s": 60.0 * 15,  # 15 minutes
-                "include_answered": args.include_answered,
+            "env_id": args.env_id,
+            "seed": args.seed,  # for random sampling actions
+            "dataset": val_data,
+            "time_limit_s": 60.0 * 15,  # 15 minutes
+            "include_answered": args.include_answered,
             }
             episodic_returns, thetas, true_thetas = evaluate(
-                model_path,
-                make_env,
-                make_env_args,
+                model=q_network,
+                model_path="",
+                make_env=make_env,
+                make_env_args=make_env_args,
                 eval_episodes=args.eval_episodes,
                 Model=QNetwork,
                 device=device,
                 epsilon=args.eval_epsilon,
             )
-
             for idx, episodic_return in enumerate(episodic_returns):
                 writer.add_scalar("eval/episodic_return", episodic_return, idx)
             thetas = np.array(thetas)
@@ -396,22 +392,26 @@ if __name__ == "__main__":
             print("True Thetas:")
             print(true_thetas.round(2))
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-
             writer.add_scalar("eval/RSME", rmse, global_step)
-
             print("RMSE: ", rmse)
 
-            # Save outputs to runs
-            os.makedirs(f"runs/{run_name}", exist_ok=True)
-            np.savez(
-                f"runs/{run_name}/results.npz",
-                thetas=thetas,
-                true_thetas=true_thetas,
-                rmse=rmse,
-                args=args,
-            )
-            print(f"Results saved in runs/{run_name}/results.npz")
-            print("Done!")
+            if global_step == args.total_timesteps:
+                os.makedirs(f"runs/{run_name}", exist_ok=True)
+                np.savez(
+                    f"runs/{run_name}/results.npz",
+                    thetas=thetas,
+                    true_thetas=true_thetas,
+                    rmse=rmse,
+                    args=args,
+                )
+                print(f"Results saved in runs/{run_name}/results.npz")
+
+
+    if args.save_model:
+        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+        torch.save(q_network.state_dict(), model_path)
+        print(f"model saved to {model_path}")
+        print("Done!")
 
     #     if args.upload_model:
     #         from cleanrl_utils.huggingface import push_to_hub
