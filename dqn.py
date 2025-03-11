@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation
+from cat_wrappers import AnsweredVectorObservation, RecordActions
 
 from tqdm import tqdm
 
@@ -112,6 +112,7 @@ def make_env(env_id, seed, dataset, include_answered, time_limit_s=60 * 15):
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered: 
             env = AnsweredVectorObservation(env)
+        env = RecordActions(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
@@ -386,7 +387,7 @@ if __name__ == "__main__":
         writer.add_scalar("eval/RSME", rmse, 0)
         
         print("RMSE: ", rmse)
-
+        histories = infos["action_history"]
         # Save outputs to runs
         os.makedirs(f"runs/{run_name}", exist_ok=True)
         np.savez(
@@ -394,6 +395,7 @@ if __name__ == "__main__":
             thetas=thetas,
             true_thetas=true_thetas,
             rmse=rmse,
+            histories=histories,
             args=args,
         )
         print(f"Results saved in runs/{run_name}/results.npz")

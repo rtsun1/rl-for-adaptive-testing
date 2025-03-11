@@ -5,6 +5,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 
+from tqdm import tqdm
 
 def evaluate(
     model_path: str,
@@ -25,38 +26,38 @@ def evaluate(
     episodic_returns = []
     thetas = []
     true_thetas = []
-    while len(episodic_returns) < eval_episodes:
-        if random.random() < epsilon:
-            actions = np.array(
-                [envs.single_action_space.sample() for _ in range(envs.num_envs)]
-            )
-        else:
-            q_values = model(torch.Tensor(obs).to(device))
-            actions = (
-                torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
-            )
-        next_obs, reward, terminations, truncations, infos = envs.step(actions)
-
-        done_mask = np.logical_or(terminations, truncations)
-        # print(envs)
-        # print(infos)
-        # print(infos["student_id"][0], terminations[0], actions[0])
-
-        if done_mask.any():
-            thetas.append(infos["theta"][done_mask].squeeze())
-            true_thetas.append(infos["true_theta"][done_mask].squeeze())
-
-            returns = infos["episode"]["r"][done_mask]
-            for i in range(returns.shape[0]):
-                print(
-                    f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
+    with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=False) as pbar:
+        while len(episodic_returns) < eval_episodes:
+            if random.random() < epsilon:
+                actions = np.array(
+                    [envs.single_action_space.sample() for _ in range(envs.num_envs)]
                 )
-                episodic_returns += [returns[i]]
+            else:
+                q_values = model(torch.Tensor(obs).to(device))
+                actions = (
+                    torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
+                )
+            next_obs, reward, terminations, truncations, infos = envs.step(actions)
 
-        if done_mask.any():
-            obs, _ = envs.reset(options={"mask": done_mask})
-        else:
-            obs = next_obs
+            done_mask = np.logical_or(terminations, truncations)
+            # print(envs)
+            # print(infos)
+            # print(infos["student_id"][0], terminations[0], actions[0])
+
+            if done_mask.any():
+                thetas.append(infos["theta"][done_mask].squeeze())
+                true_thetas.append(infos["true_theta"][done_mask].squeeze())
+
+                returns = infos["episode"]["r"][done_mask]
+                for i in range(returns.shape[0]):
+                    tqdm.write(
+                        f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
+                    )
+                    episodic_returns += [returns[i]]
+                    pbar.update(1)
+                obs, _ = envs.reset(options={"mask": done_mask})
+            else:
+                obs = next_obs
 
     return episodic_returns, thetas, true_thetas
 
@@ -66,7 +67,7 @@ if __name__ == "__main__":
 
     from dqn import QNetwork, make_env
     from dataloader import dataset_rl
-    model_path = "runs/CAT-v0__dqn__1__1741064359/dqn.cleanrl_model"
+    model_path = "runs/CAT-v0__dqn__42__1741654768/dqn.cleanrl_model"
     # model_path = hf_hub_download(
     #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
     # )
@@ -87,7 +88,7 @@ if __name__ == "__main__":
         "seed": 42,
         "dataset": val_data,
         "time_limit_s": 60 * 15,  # 15 minutes
-        "include_answered": True,
+        "include_answered": False,  # modify based on model
     }
     episodic_returns, thetas, true_thetas = evaluate(
         model_path,

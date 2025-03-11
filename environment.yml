@@ -10,11 +10,13 @@ dependencies:
   - tensorboard
   - pandas
   - scipy
-  - ipykernel
   - tqdm
   - tyro
   - stable-baselines3
   - wandb
   - seaborn
+  - plotly
+  - nbformat
   - pip:
     - gymnasium==1.1.0
+    - ipykernel
