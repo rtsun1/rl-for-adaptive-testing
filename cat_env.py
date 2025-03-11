@@ -286,19 +286,22 @@ if __name__ == "__main__":
             time_limit_s=60 * 15,
             # time_limit_s=15,
         )
-        # env = AnsweredVectorObservation(env)
-        # env = DetailedAnsweredVectorObservation(env)
-        # env = FisherInfoRewards(env)
-        # env = RecordActions(env)
+        # env = AnsweredVectorObservation(env)  # Async: 105.01 it/s
+        # env = DetailedAnsweredVectorObservation(env, dataset=dataset)  # Async: 98.77 it/s
+        # env = FisherInfoRewards(env, dataset=dataset)  # Async: 101.76 it/s
+        # env = RecordActions(env)  # Async: <5 it/s, Sync: 61.78 it/s
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         return env
+    start_make = time.time()
     env = gym.vector.AsyncVectorEnv(
         [make_env for _ in range(n_envs)], 
         autoreset_mode=gym.vector.AutoresetMode.DISABLED,
         # shared_memory=True,
         copy=False,
     )
+    stop_make = time.time()
+    print(f"Time taken to make env: {stop_make - start_make}s")  # NOTE: 2.4 seconds for 4 envs. Likely due to sorting the dataset
     # Async: 115.28 it/s (4 envs M2 Mac)
     # Sync: 57.81 it/s (4 envs M2 Mac)
 
@@ -315,6 +318,7 @@ if __name__ == "__main__":
         while runs_so_far < n:  # n students
             mask = get_mask((env.num_envs, env.single_action_space.n), info["answered"])
             action = env.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+
             start_step = time.time()
             observation, reward, terminated, truncated, info = env.step(action)
             stop_step = time.time()
@@ -322,10 +326,12 @@ if __name__ == "__main__":
             
             done_mask = np.logical_or(terminated, truncated)
             if done_mask.any():
+
                 start_reset = time.time()
                 observation, info = env.reset(options={"mask": done_mask})
                 stop_reset = time.time()
                 tqdm.write(f"Reset time: {stop_reset - start_reset}s")
+
                 runs_so_far += done_mask.sum()
 
                 pbar.update(done_mask.sum())

@@ -130,7 +130,7 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
             env = FisherInfoRewards(env, dataset=dataset)
-        env = RecordActions(env)
+        env = RecordActions(env)  # High overhead in AsyncVectorEnv
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
@@ -252,6 +252,10 @@ if __name__ == "__main__":
     )
 
     start_time = time.time()
+    env_times = []  # track time to step the env
+    forward_times = []  # track time to forward the model
+    train_times = []
+    reset_times = []
 
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
@@ -277,6 +281,8 @@ if __name__ == "__main__":
                 actions = envs.action_space.sample()
             # print("DEBUG : global step ", global_step, " random ", actions)
         else:
+            start_forward_time = time.time()
+
             q_values = q_network(torch.Tensor(obs).to(device))
             if args.mask_answered:
                 mask = get_mask(q_values.shape, infos["answered"])  # masking
@@ -289,6 +295,8 @@ if __name__ == "__main__":
                 .cpu()
                 .numpy()
             )
+
+            forward_times.append(time.time() - start_forward_time)
             # print("DEBUG : global step ", global_step, " q-network ", actions)
 
         # print(
@@ -300,7 +308,9 @@ if __name__ == "__main__":
         # )
 
         # TRY NOT TO MODIFY: execute the game and log data.
+        start_env_time = time.time()
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        env_times.append(time.time() - start_env_time)
         # print(rewards)
         # Get done envs
         done_mask = np.logical_or(terminations, truncations)
@@ -310,7 +320,7 @@ if __name__ == "__main__":
             returns = infos["episode"]["r"][done_mask]
             episode_lengths = infos["episode"]["l"][done_mask]
             for i in range(returns.shape[0]):
-                tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
+                # tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
                 writer.add_scalar("training/episodic_return", returns[i], global_step)
                 writer.add_scalar("training/episodic_length", episode_lengths[i], global_step)
 
@@ -327,13 +337,19 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         if done_mask.any():
+            start_reset_time = time.time()
+
             obs, _ = envs.reset(options={"mask": done_mask})
+
+            reset_times.append(time.time() - start_reset_time)
         else:
             obs = next_obs
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
+                start_train_time = time.time()
+
                 data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
                     target_max, _ = target_network(data.next_observations).max(dim=1)
@@ -360,6 +376,8 @@ if __name__ == "__main__":
                 loss.backward()
                 optimizer.step()
 
+                train_times.append(time.time() - start_train_time)
+                
             # update target network
             if global_step % args.target_network_frequency == 0:
                 for target_network_param, q_network_param in zip(
@@ -369,6 +387,13 @@ if __name__ == "__main__":
                         args.tau * q_network_param.data
                         + (1.0 - args.tau) * target_network_param.data
                     )
+        # Periodically log time
+        if global_step % 5000 == 0:  # TODO: remove hardcoded interval
+            tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
+            env_times = []
+            train_times = []
+            forward_times = []
+            reset_times = []
 
         # PERIODICALLY EVAL
         if global_step % args.eval_frequency == 0:

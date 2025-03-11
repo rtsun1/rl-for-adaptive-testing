@@ -33,6 +33,8 @@ def evaluate(
     episodic_returns = []
     thetas = []
     true_thetas = []
+    histories = []  # track the actions for each completed episode
+    history = [[] for _ in range(num_envs)]  # track the actions for each episode in each env
     with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=False) as pbar:
         while len(episodic_returns) < eval_episodes:
             if random.random() < epsilon:
@@ -46,35 +48,39 @@ def evaluate(
                 )
             next_obs, reward, terminations, truncations, infos = envs.step(actions)
 
+            # record action
+            for env_idx in range(num_envs):
+                if not infos["already_asked"][env_idx]:
+                    history[env_idx].append(actions[env_idx])
+
             done_mask = np.logical_or(terminations, truncations)
 
             if done_mask.any():
                 n_done = done_mask.sum()
-                returns = infos["episode"]["r"][done_mask]
-                for i in range(n_done):
-                    thetas.append(infos["theta"][done_mask][i])
-                    true_thetas.append(infos["true_theta"][done_mask][i])
+                for done_env in np.nonzero(done_mask)[0]:
+                    thetas.append(infos["theta"][done_env])
+                    true_thetas.append(infos["true_theta"][done_env])
                     tqdm.write(
-                        f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
+                        f"eval_episode={len(episodic_returns)}, episodic_return={infos["episode"]["r"][done_env]}"
                     )
-                    episodic_returns.append(returns[i])
+                    episodic_returns.append(infos["episode"]["r"][done_env])
+
+                    histories.append(history[done_env])
+                    history[done_env] = []
+
                     if len(episodic_returns) == eval_episodes:
                         break  # do not add extra returns if 2 epsiodes completed at the same time and needed only 1 more
                     pbar.update(1)
+
                 obs, _ = envs.reset(options={"mask": done_mask})
             else:
                 obs = next_obs
 
-    histories = infos["action_history"]
-    continuous_history = []
-    for history in histories:
-        continuous_history += history
-    print(continuous_history)
     envs.close()
     # Done eval, go back to train
     model.train()
 
-    return episodic_returns, thetas, true_thetas, continuous_history
+    return episodic_returns, thetas, true_thetas, histories
 
 
 if __name__ == "__main__":
