@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation
+from cat_wrappers import AnsweredVectorObservation, RecordActions
 
 from tqdm import tqdm
 from dqn_eval import evaluate
@@ -119,6 +119,7 @@ def make_env(env_id, seed, dataset, include_answered, time_limit_s=60 * 15):
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered:
             env = AnsweredVectorObservation(env)
+        env = RecordActions(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
