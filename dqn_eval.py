@@ -50,7 +50,7 @@ def evaluate(
 
                 returns = infos["episode"]["r"][done_mask]
                 for i in range(returns.shape[0]):
-                    print(
+                    tqdm.write(
                         f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
                     )
                     episodic_returns += [returns[i]]

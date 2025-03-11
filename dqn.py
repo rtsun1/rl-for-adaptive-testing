@@ -388,7 +388,6 @@ if __name__ == "__main__":
         
         print("RMSE: ", rmse)
         histories = infos["action_history"]
-
         # Save outputs to runs
         os.makedirs(f"runs/{run_name}", exist_ok=True)
         np.savez(

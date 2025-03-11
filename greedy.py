@@ -7,6 +7,7 @@ from dqn import get_mask
 import numpy as np
 import os
 from dataclasses import dataclass
+from cat_wrappers import RecordActions
 
 @dataclass
 class Args:
@@ -48,6 +49,7 @@ def greedy_fi(args: Args):
 
     train_data, val_data, test_data = dataset_rl()
     env = gym.make("CAT-v0", dataset=val_data, time_limit_s=args.time_limit_s)  # 15 minutes
+    env = RecordActions(env)
     # Greedy FI Algorithm
     obs, info = env.reset()
 
@@ -96,8 +98,10 @@ def greedy_fi(args: Args):
         thetas[x] = info["theta"]
         true_thetas[x] = info["true_theta"]
 
+    histories = np.array([0], dtype=object)
+    histories[0] = info["action_history"]  # trying to mimic how vector env stores action history
     env.close()
-    return thetas, true_thetas
+    return thetas, true_thetas, histories
 
 
 if __name__ == "__main__":
@@ -105,7 +109,7 @@ if __name__ == "__main__":
 
     args = tyro.cli(Args)
 
-    thetas, true_thetas = greedy_fi(
+    thetas, true_thetas, histories = greedy_fi(
         args
     )
 
@@ -127,6 +131,7 @@ if __name__ == "__main__":
         thetas=thetas,
         true_thetas=true_thetas,
         rmse=rmse,
+        histories=histories,
         args=args,
     )
     print(f"Results saved in runs/{run_name}/results.npz")
