@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, RecordActions
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions
 
 from tqdm import tqdm
 
@@ -52,6 +52,8 @@ class Args:
     """the id of the environment"""
     include_answered: bool = False
     """whether to include answered questions as a bit vector in the observation"""
+    detailed_answered: bool = False
+    """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
     # dataset_f: str = "data/test_data.csv"
@@ -107,11 +109,15 @@ def get_mask(shape, answered):  # Masking is differentiable: https://arxiv.org/p
         mask[answered] = 0
     return mask
 
-def make_env(env_id, seed, dataset, include_answered, time_limit_s=60 * 15):
+def make_env(env_id, seed, dataset, include_answered, detailed_answered, time_limit_s=60 * 15):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
+        if include_answered and detailed_answered:
+            raise ValueError("You are including both binary answered and detailed answered. This is likely a mistake.")
         if include_answered: 
             env = AnsweredVectorObservation(env)
+        elif detailed_answered:
+            env = DetailedAnsweredVectorObservation(env)
         env = RecordActions(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
@@ -191,7 +197,7 @@ if __name__ == "__main__":
     # env setup
     envs = gym.vector.SyncVectorEnv(
         [
-            make_env(args.env_id, args.seed + i, train_data, args.include_answered)
+            make_env(args.env_id, args.seed + i, train_data, args.include_answered, args.detailed_answered)
             for i in range(args.num_envs)
         ],
         autoreset_mode=gym.vector.AutoresetMode.DISABLED  # see https://farama.org/Vector-Autoreset-Mode
@@ -363,6 +369,7 @@ if __name__ == "__main__":
             "dataset": val_data,
             "time_limit_s": 60.0 * 15,  # 15 minutes
             "include_answered": args.include_answered,
+            "detailed_answered": args.detailed_answered,
         }
         episodic_returns, thetas, true_thetas = evaluate(
             model_path,
