@@ -9,6 +9,9 @@ dqn_paper_code
 # outdated
 old
 
+# cuda yaml
+environment_cuda.yml
+
 # too large
 data
 pisa_data.csv
