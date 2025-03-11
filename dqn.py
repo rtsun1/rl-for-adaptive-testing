@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards
 
 from tqdm import tqdm
 from dqn_eval import evaluate
@@ -36,7 +36,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = "aarondom-university-of-alberta"
+    wandb_entity: str = "tonyinbio"
     """the entity (team) of wandb's project"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
@@ -58,6 +58,8 @@ class Args:
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
+    fisher_rewards: bool = False
+    """whether to add fisher information as rewards"""
     # dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -117,7 +119,7 @@ def get_mask(
     return mask
 
 
-def make_env(env_id, seed, dataset, include_answered, detailed_answered, time_limit_s=60 * 15):
+def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_rewards, time_limit_s=60 * 15):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered and detailed_answered:
@@ -126,6 +128,8 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, time_li
             env = AnsweredVectorObservation(env)
         elif detailed_answered:
             env = DetailedAnsweredVectorObservation(env)
+        if fisher_rewards:
+            env = FisherInfoRewards(env)
         env = RecordActions(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
@@ -208,9 +212,17 @@ if __name__ == "__main__":
     print("Using Device : ", device)
 
     # env setup
+    main_env_config = {
+            "env_id": args.env_id,
+            "time_limit_s": 60.0 * 15,  # 15 minutes
+            "include_answered": args.include_answered,
+            "detailed_answered": args.detailed_answered,
+            "fisher_rewards": args.fisher_rewards,
+        }  # just need to specify: seed, dataset
+    
     envs = gym.vector.SyncVectorEnv(
         [
-            make_env(args.env_id, args.seed + i, train_data, args.include_answered, args.detailed_answered)
+            make_env(seed=args.seed + i, dataset=train_data, **main_env_config)
             for i in range(args.num_envs)
         ],
         autoreset_mode=gym.vector.AutoresetMode.DISABLED,  # see https://farama.org/Vector-Autoreset-Mode
@@ -375,13 +387,10 @@ if __name__ == "__main__":
         # PERIODICALLY EVAL
         if global_step % args.eval_frequency == 0:
             make_env_args = {
-            "env_id": args.env_id,
-            "seed": args.seed,  # for random sampling actions
-            "dataset": val_data,
-            "time_limit_s": 60.0 * 15,  # 15 minutes
-            "include_answered": args.include_answered,
-            "detailed_answered": args.detailed_answered,
-        }
+                "seed": args.seed,  # for random sampling actions
+                "dataset": val_data,
+                **main_env_config,
+            }
             episodic_returns, thetas, true_thetas = evaluate(
                 model=q_network,
                 model_path="",

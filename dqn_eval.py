@@ -95,7 +95,8 @@ if __name__ == "__main__":
         "dataset": val_data,
         "time_limit_s": 60 * 15,  # 15 minutes
         "include_answered": False,  # modify based on model
-        "detailed_answered": False,  # modify based on model
+        "detailed_answered": False,  # modify based on model,
+        "fisher_rewards": False,  # doesn't matter for evaluation
     }
     episodic_returns, thetas, true_thetas = evaluate(
         model_path,
