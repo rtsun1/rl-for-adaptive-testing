@@ -77,8 +77,8 @@ class CATEnv(gym.Env):
         return: DataFrame sorted by student_id and item_id
             cols: ["student_id", "item_id", "discrimination", "difficulty", "response", "response_time", "final_score"]
         """
-        raw = raw.sort_values(by=["student_id", "item_id"])  # so we can access the items in O(1) time
-        raw = raw.reset_index(drop=True)
+        raw.sort_values(by=["student_id", "item_id"], inplace=True)  # so we can access the items in O(1) time
+        raw.reset_index(drop=True, inplace=True)
 
         n_items = raw["item_id"].unique().shape[0]
 
@@ -108,7 +108,6 @@ class CATEnv(gym.Env):
         return {
             "student_id": self.sid, 
             "dataset": self.dataset,
-            "conversion": self._action_to_idx,
             "theta": self.theta,
             "true_theta": self.true_theta,
             "average_times": self.average_times,
@@ -258,71 +257,77 @@ if __name__ == "__main__":
     from dataloader import dataset_rl
     from IRT import batch_fisher_information
     import time
+    from tqdm import tqdm
     from dqn import get_mask
+    from cat_wrappers import *
 
     train_data, val_data, test_data = dataset_rl()
-    env = gym.make("CAT-v0", dataset=val_data, time_limit_s=60 * 15)  # 15 minutes
-    print(env.observation_space)
-    print(env.observation_space['theta'].sample())
-    print(env.action_space)
+    # env = gym.make("CAT-v0", dataset=val_data, time_limit_s=60 * 15)  # 15 minutes
+    # print(env.observation_space)
+    # print(env.observation_space['theta'].sample())
+    # print(env.action_space)
 
-    # Greedy FI Algorithm
+    dummy_data = pd.DataFrame(
+        data={
+            "student_id": [0, 0, 1, 1],
+            "item_id": [0, 1, 0, 1],
+            "discrimination": [1.0, 1.0, 1.0, 1.0],
+            "difficulty": [0.0, 0.0, 0.0, 0.0],
+            "response": [1, 1, 1, 1],
+            "response_time": [10, 10, 10, 10],
+            "final_score": [1, 1, 1, 1],
+        }
+    )
+    n_envs = 4
+    def make_env():
+        env = gym.make(
+            "CAT-v0", 
+            dataset=val_data, 
+            # dataset=dummy_data,
+            time_limit_s=60 * 15,
+            # time_limit_s=15,
+        )
+        # env = AnsweredVectorObservation(env)
+        # env = DetailedAnsweredVectorObservation(env)
+        # env = FisherInfoRewards(env)
+        # env = RecordActions(env)
+        env = gym.wrappers.RecordEpisodeStatistics(env)
+        env = gym.wrappers.FlattenObservation(env)
+        return env
+    env = gym.vector.AsyncVectorEnv(
+        [make_env for _ in range(n_envs)], 
+        autoreset_mode=gym.vector.AutoresetMode.DISABLED,
+        # shared_memory=True,
+        copy=False,
+    )
+
     obs, info = env.reset()
 
-    n = 1  # number of students
-    n_items = info["dataset"]["item_id"].unique().shape[0]
-    diffs = info["dataset"]["difficulty"].unique()  # unique preserves order of appearance
-    discs = info["dataset"]["discrimination"].unique()
-    thetas = np.zeros(n)  # estimated thetas
+    n = 1000  # number of students
+    n_items = info["dataset"][0]["item_id"].unique().shape[0]
     true_thetas = np.zeros(n)
     time_aware = False
 
-    for x in range(n):  # n students
-        observation, info = env.reset(seed=42 + x)  # info gathered each reset
-        # print(observation)
-        theta = observation["theta"][0]
-        fisher_inf = np.zeros(n_items)
-        episode_over = False
-        G = 0
-        answered = set()
-
-        ### TRAINING the short Theta over 1 episode
-        while not episode_over: 
-
-            # Calculate FI for all items
-            # toc = time.time()
-            fisher_inf = batch_fisher_information(diffs, discs, theta)
-            mask = get_mask(n_items, [answered])  # get_mask assumes answered is from a vector env so wrap with []
-            fisher_inf[np.logical_not(mask)] = -np.inf
-            # tic = time.time()
-            # print(tic - toc)
-            if time_aware:
-                fisher_inf /= info["average_times"]  # divide by avg time to answer the question
-            # Select the action with the highest FI
-            action = np.argmax(fisher_inf)
-            answered.add(action)
+    runs_so_far = 0
+    start = time.time()
+    with tqdm(total=n) as pbar:
+        while runs_so_far < n:  # n students
+            mask = get_mask((env.num_envs, env.single_action_space.n), info["answered"])
+            action = env.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+            start_step = time.time()
             observation, reward, terminated, truncated, info = env.step(action)
+            stop_step = time.time()
+            tqdm.write(f"Step time: {stop_step - start_step:.2f}s")
             
-            # Update theta
-            theta = observation["theta"][0]
-            G += reward
-            # Log
-            print(action, observation, reward)
-            
-            episode_over = terminated or truncated
-        
-        # calculate true theta estimate for the current student
-        # add to items
-        thetas[x] = info["theta"]
-        true_thetas[x] = info["true_theta"]
+            done_mask = np.logical_or(terminated, truncated)
+            if done_mask.any():
+                start_reset = time.time()
+                observation, info = env.reset(options={"mask": done_mask})
+                stop_reset = time.time()
+                tqdm.write(f"Reset time: {stop_reset - start_reset:.2f}s")
+                runs_so_far += done_mask.sum()
 
-    # Theta RMSE:
-    print("Estimated Thetas:")
-    print(thetas.round(2))
-    print("True Thetas:")
-    print(true_thetas.round(2))
-    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-    
-    print("RMSE: ", rmse)
-
+                pbar.update(done_mask.sum())
+    stop = time.time()
+    print(f"Time taken: {stop - start:.2f}s")
     env.close()

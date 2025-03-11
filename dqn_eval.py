@@ -13,12 +13,17 @@ def evaluate(
     make_env: Callable,
     make_env_args: dict,
     eval_episodes: int,
+    num_envs: int,
     Model: torch.nn.Module,
     device: torch.device = torch.device("cpu"),
     epsilon: float = 0.05,
 ):
-    # make_env_args["capture_video"] = make_env_args.get("capture_video", True)
-    envs = gym.vector.SyncVectorEnv([make_env(**make_env_args)], gym.vector.AutoresetMode.DISABLED)
+    envs = gym.vector.SyncVectorEnv(
+        [make_env(**make_env_args) for _ in range(num_envs)], 
+        autoreset_mode=gym.vector.AutoresetMode.DISABLED,
+        # shared_memory=True,
+        copy=False,
+    )
     if model == None:
         model = Model(envs).to(device)
         model.load_state_dict(torch.load(model_path, map_location=device))
@@ -41,52 +46,42 @@ def evaluate(
                 )
             next_obs, reward, terminations, truncations, infos = envs.step(actions)
 
-
             done_mask = np.logical_or(terminations, truncations)
-            # print(envs)
-            # print(infos)
-            # print(infos["student_id"][0], terminations[0], actions[0])
 
             if done_mask.any():
-                thetas.append(infos["theta"][done_mask].squeeze())
-                true_thetas.append(infos["true_theta"][done_mask].squeeze())
-
+                n_done = done_mask.sum()
                 returns = infos["episode"]["r"][done_mask]
-                for i in range(returns.shape[0]):
+                for i in range(n_done):
+                    thetas.append(infos["theta"][done_mask][i])
+                    true_thetas.append(infos["true_theta"][done_mask][i])
                     tqdm.write(
                         f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
                     )
-                    episodic_returns += [returns[i]]
+                    episodic_returns.append(returns[i])
+                    if len(episodic_returns) == eval_episodes:
+                        break  # do not add extra returns if 2 epsiodes completed at the same time and needed only 1 more
                     pbar.update(1)
                 obs, _ = envs.reset(options={"mask": done_mask})
             else:
                 obs = next_obs
 
+    histories = infos["action_history"]
+    continuous_history = []
+    for history in histories:
+        continuous_history += history
+    print(continuous_history)
+    envs.close()
     # Done eval, go back to train
     model.train()
 
-    return episodic_returns, thetas, true_thetas
+    return episodic_returns, thetas, true_thetas, continuous_history
 
 
 if __name__ == "__main__":
-    # from huggingface_hub import hf_hub_download
-
     from dqn import QNetwork, make_env
     from dataloader import dataset_rl
+
     model_path = "runs/CAT-v0__dqn__42__1741654768/dqn.cleanrl_model"
-    # model_path = hf_hub_download(
-    #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
-    # )
-    # evaluate(
-    #     model_path,
-    #     make_env,
-    #     "CartPole-v1",
-    #     eval_episodes=10,
-    #     run_name=f"eval",
-    #     Model=QNetwork,
-    #     device="cpu",
-    #     capture_video=False,
-    # )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_data, val_data, test_data = dataset_rl()
     make_env_args = {
@@ -98,11 +93,12 @@ if __name__ == "__main__":
         "detailed_answered": False,  # modify based on model,
         "fisher_rewards": False,  # doesn't matter for evaluation
     }
-    episodic_returns, thetas, true_thetas = evaluate(
+    episodic_returns, thetas, true_thetas, histories = evaluate(
         model_path,
         make_env,
         make_env_args,
         eval_episodes=1000,
+        num_envs=2,
         Model=QNetwork,
         device=device,
         epsilon=1,
@@ -118,5 +114,3 @@ if __name__ == "__main__":
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
     
     print("RSME: ", rmse)
-    # for idx, episodic_return in enumerate(episodic_returns):
-        # writer.add_scalar("eval/episodic_return", episodic_return, idx)

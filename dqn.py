@@ -179,7 +179,6 @@ if __name__ == "__main__":
             """
         )
     args = tyro.cli(Args)
-    assert args.num_envs == 1, "vectorized envs are not supported at the moment"
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
@@ -209,6 +208,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
     print("Using Device : ", device)
 
     # env setup
@@ -226,6 +226,7 @@ if __name__ == "__main__":
             for i in range(args.num_envs)
         ],
         autoreset_mode=gym.vector.AutoresetMode.DISABLED,  # see https://farama.org/Vector-Autoreset-Mode
+        copy=False,
     )
     # env = gym.make(args.env_id, dataset_f=args.dataset_f)
     assert isinstance(
@@ -241,19 +242,12 @@ if __name__ == "__main__":
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
     # print("DEBUG env.single_action_space : ", env.single_action_space)
 
-    # replay_buffer = DictReplayBuffer(
-    #     args.buffer_size,
-    #     envs.single_observation_space,
-    #     envs.single_action_space,
-    #     device,
-    #     handle_timeout_termination=False,
-    # )
-
     replay_buffer = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
         device,
+        envs.num_envs,
         handle_timeout_termination=False,
     )
 
@@ -262,7 +256,7 @@ if __name__ == "__main__":
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
-
+    step_counter = {"eval_episodes": 0}
     for global_step in tqdm(range(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(
@@ -277,14 +271,10 @@ if __name__ == "__main__":
 
         if random.random() < epsilon:
             if args.mask_answered:
-                mask = get_mask(
-                    envs.single_action_space.n, infos["answered"]
-                )  # masking
-                actions = np.array(envs.single_action_space.sample(mask=mask)).reshape(
-                    1
-                )
+                mask = get_mask((envs.num_envs, envs.single_action_space.n), infos["answered"])
+                action = envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
             else:
-                actions = np.array(envs.single_action_space.sample()).reshape(1)
+                actions = envs.action_space.sample()
             # print("DEBUG : global step ", global_step, " random ", actions)
         else:
             q_values = q_network(torch.Tensor(obs).to(device))
@@ -298,8 +288,6 @@ if __name__ == "__main__":
                 )  # TODO : Check if modifying dim to 0 crashes batche
                 .cpu()
                 .numpy()
-            ).reshape(
-                1,
             )
             # print("DEBUG : global step ", global_step, " q-network ", actions)
 
@@ -323,10 +311,8 @@ if __name__ == "__main__":
             episode_lengths = infos["episode"]["l"][done_mask]
             for i in range(returns.shape[0]):
                 tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
-                writer.add_scalar("charts/episodic_return", returns[i], global_step)
-                writer.add_scalar(
-                    "charts/episodic_length", episode_lengths[i], global_step
-                )
+                writer.add_scalar("training/episodic_return", returns[i], global_step)
+                writer.add_scalar("training/episodic_length", episode_lengths[i], global_step)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         # NOTE: Fixed based on: https://farama.org/Vector-Autoreset-Mode
@@ -391,44 +377,65 @@ if __name__ == "__main__":
                 "dataset": val_data,
                 **main_env_config,
             }
-            episodic_returns, thetas, true_thetas = evaluate(
+            episodic_returns, thetas, true_thetas, histories = evaluate(
                 model=q_network,
                 model_path="",
                 make_env=make_env,
                 make_env_args=make_env_args,
                 eval_episodes=args.eval_episodes,
+                num_envs=args.num_envs,
                 Model=QNetwork,
                 device=device,
                 epsilon=args.eval_epsilon,
             )
-            for idx, episodic_return in enumerate(episodic_returns):
-                writer.add_scalar("eval/episodic_return", episodic_return, idx)
+            for episodic_return in episodic_returns:
+                writer.add_scalar("eval/episodic_return", episodic_return, global_step)
+                step_counter["eval_episodes"] += 1
             thetas = np.array(thetas)
             true_thetas = np.array(true_thetas)
-            print("Estimated Thetas:")
-            print(thetas.round(2))
-            print("True Thetas:")
-            print(true_thetas.round(2))
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-            writer.add_scalar("eval/RSME", rmse, global_step)
-            print("RMSE: ", rmse)
-            
-            # Save history for sankey diagram
-            histories = infos["action_history"]
+            writer.add_scalar("eval/RMSE", rmse, global_step)
 
-            if global_step == args.total_timesteps:
-                os.makedirs(f"runs/{run_name}", exist_ok=True)
-                np.savez(
-                    f"runs/{run_name}/results.npz",
-                    thetas=thetas,
-                    true_thetas=true_thetas,
-                    rmse=rmse,
-                    args=args,
-                    histories=histories
-                )
-                print(f"Results saved in runs/{run_name}/results.npz")
+    make_env_args = {
+        "seed": args.seed,  # for random sampling actions
+        "dataset": val_data,
+        **main_env_config,
+    }
+    episodic_returns, thetas, true_thetas, histories = evaluate(
+        model=q_network,
+        model_path="",
+        make_env=make_env,
+        make_env_args=make_env_args,
+        eval_episodes=args.eval_episodes,
+        num_envs=args.num_envs,
+        Model=QNetwork,
+        device=device,
+        epsilon=args.eval_epsilon,
+    )
+    for idx, episodic_return in enumerate(episodic_returns):
+        writer.add_scalar("eval/episodic_return", episodic_return, idx)
+    thetas = np.array(thetas)
+    true_thetas = np.array(true_thetas)
+    print("Estimated Thetas:")
+    print(thetas.round(2))
+    print("True Thetas:")
+    print(true_thetas.round(2))
+    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
+    writer.add_scalar("eval/RSME", rmse, global_step)
+    print("RMSE: ", rmse)
+    # Save history for sankey diagram
+    histories = infos["action_history"]
 
-
+    os.makedirs(f"runs/{run_name}", exist_ok=True)
+    np.savez(
+        f"runs/{run_name}/results.npz",
+        thetas=thetas,
+        true_thetas=true_thetas,
+        rmse=rmse,
+        args=args,
+        histories=histories
+    )
+    print(f"Results saved in runs/{run_name}/results.npz")
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(q_network.state_dict(), model_path)

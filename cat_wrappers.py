@@ -56,9 +56,8 @@ class AnsweredVectorObservation(Wrapper):
         # Define observation space
         self.observation_space = gym.spaces.Dict(
             {
-                "theta": env.observation_space["theta"],
-                "time_left": env.observation_space["time_left"],
                 "answered": gym.spaces.MultiBinary(n=self.n_items),
+                **env.observation_space
             }
         )
     
@@ -82,8 +81,6 @@ class DetailedAnsweredVectorObservation(Wrapper):
     Add to the observation space an array (n_items, 4)
     with columns: discrimination, difficulty, response, response time.
     -1 in all entries for rows corresponding to unanswered questions.
-
-    Mutually exclusive with AnsweredVectorObservation
     """
     def __init__(self, env):
         super().__init__(env)
@@ -95,21 +92,20 @@ class DetailedAnsweredVectorObservation(Wrapper):
         # Define observation space
         self.observation_space = gym.spaces.Dict(
             {
-                "theta": env.observation_space["theta"],
-                "time_left": env.observation_space["time_left"],
-                "answered": gym.spaces.Box(
-                    low=-1, 
+                "detailed_answered": gym.spaces.Box(
+                    low=-1,  # difficulty could be between (-inf, inf) but likely lower bounded by -1
                     high=np.inf,  # NOTE: for now, no upper bound on any of the columns (only impacts observation_space.sample())
                     shape=(env.action_space.n, 4), 
                     dtype=np.float32
                 ),
+                **env.observation_space
             }
         )
     
     def _add_answered(self, obs):
         details_arr = self.details_arr.view()
         details_arr.flags.writeable = False  # don't let user mess with wrapper's details_arr
-        obs["answered"] = details_arr
+        obs["detailed_answered"] = details_arr
         return obs
     
     def reset(self, seed = None, options = None):
@@ -167,60 +163,60 @@ if __name__ == "__main__":
     env = FisherInfoRewards(env)
     obs, info = env.reset()
     obs, reward, terminated, truncated, info = env.step(1)
-    print(reward)
+    assert reward > 0
     obs, reward, terminated, truncated, info = env.step(2)
-    print(reward)
+    assert reward > 0
     obs, reward, terminated, truncated, info = env.step(5)
-    print(reward)
+    assert reward > 0
     obs, reward, terminated, truncated, info = env.step(1)
-    print(reward)  # should be -1
+    assert reward == -1
 
     while not terminated:  # finish the episode
         a = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(a)
-    print(reward)  # should be -(squared error)
+    assert reward < 0  # should be -(squared error)
     env.close()
 
     # AnsweredVectorObservation
-    # env = gym.make("CAT-v0", dataset=val)
-    # env = AnsweredVectorObservation(env)
-    # # env = gym.vector.SyncVectorEnv([lambda: env])
-    # obs, info = env.reset()
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # obs, reward, terminated, truncated, info = env.step(2)
-    # obs, reward, terminated, truncated, info = env.step(5)
-    # env.close()
-    # print(obs)
+    env = gym.make("CAT-v0", dataset=val)
+    env = AnsweredVectorObservation(env)
+    # env = gym.vector.SyncVectorEnv([lambda: env])
+    obs, info = env.reset()
+    obs, reward, terminated, truncated, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(2)
+    obs, reward, terminated, truncated, info = env.step(5)
+    env.close()
+    print(obs)
 
     # DetailedAnsweredVectorObservation
-    # env = gym.make("CAT-v0", dataset=val)
-    # env = DetailedAnsweredVectorObservation(env)
-    # obs, info = env.reset()
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # obs, reward, terminated, truncated, info = env.step(2)
-    # obs, reward, terminated, truncated, info = env.step(5)
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # obs, reward, terminated, truncated, info = env.step(10)
-    # print(obs)
-    # env.reset()
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # print(obs)
-    # env.close()
+    env = gym.make("CAT-v0", dataset=val)
+    env = DetailedAnsweredVectorObservation(env)
+    obs, info = env.reset()
+    obs, reward, terminated, truncated, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(2)
+    obs, reward, terminated, truncated, info = env.step(5)
+    obs, reward, terminated, truncated, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(10)
+    print(obs)
+    env.reset()
+    obs, reward, terminated, truncated, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(1)
+    print(obs)
+    env.close()
 
     # RecordActions
-    # env = gym.make("CAT-v0", dataset=val)
-    # env = RecordActions(env)
-    # obs, info = env.reset()
-    # print(info["action_history"])
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # print(info["action_history"])
-    # obs, reward, terminated, truncated, info = env.step(2)
-    # obs, reward, terminated, truncated, info = env.step(5)
-    # env.reset()
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # obs, reward, terminated, truncated, info = env.step(1)
-    # obs, reward, terminated, truncated, info = env.step(2)
+    env = gym.make("CAT-v0", dataset=val)
+    env = RecordActions(env)
+    obs, info = env.reset()
+    print(info["action_history"])
+    obs, reward, terminated, truncated, info = env.step(1)
+    print(info["action_history"])
+    obs, reward, terminated, truncated, info = env.step(2)
+    obs, reward, terminated, truncated, info = env.step(5)
+    env.reset()
+    obs, reward, terminated, truncated, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(1)
+    obs, reward, terminated, truncated, info = env.step(2)
 
-    # env.close()
-    # print(info["action_history"])
+    env.close()
+    print(info["action_history"])

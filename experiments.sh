@@ -2,10 +2,11 @@
 # conda activate cat
 
 time_limit_s=$((60*15))  # 15 minutes
-eval_size=1000  # 1000 students to evaluate
+eval_size=100  # 100 students to evaluate
 seed=42
+num_envs=4
 
-train_steps=500000  # steps to train dqn
+train_steps=125000  # steps to train dqn
 
 default_args="--time-limit-s $time_limit_s --eval-episodes $eval_size --seed $seed"
 
@@ -16,6 +17,8 @@ python greedy.py --time-aware --exp-name "greedy_time_aware_${eval_size}_student
 
 # DQN
 echo "Running DQN"
-python dqn.py --total-timesteps $train_steps --exp-name "dqn_${train_steps}_train_steps_${eval_size}_students" $default_args
-python dqn.py --total-timesteps $train_steps --mask-answered --exp-name "dqn_mask_${train_steps}_train_steps_${eval_size}_students" $default_args
-python dqn.py --total-timesteps $train_steps --include-answered --exp-name "dqn_include_answered_${train_steps}_train_steps_${eval_size}_students" $default_args
+dqn_args="$default_args --num-envs $num_envs --total-timesteps $train_steps"
+python dqn.py --exp-name "dqn_${train_steps}_train_steps_${eval_size}_students" $dqn_args
+python dqn.py --mask-answered --exp-name "dqn_mask_${train_steps}_train_steps_${eval_size}_students" $dqn_args
+python dqn.py --include-answered --exp-name "dqn_include_answered_${train_steps}_train_steps_${eval_size}_students" $dqn_args
+python dqn.py --detailed-answered --exp-name "dqn_detailed_answered_${train_steps}_train_steps_${eval_size}_students" $dqn_args
