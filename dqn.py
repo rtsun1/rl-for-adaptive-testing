@@ -127,9 +127,9 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
         if include_answered:
             env = AnsweredVectorObservation(env)
         elif detailed_answered:
-            env = DetailedAnsweredVectorObservation(env)
+            env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
-            env = FisherInfoRewards(env)
+            env = FisherInfoRewards(env, dataset=dataset)
         env = RecordActions(env)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)

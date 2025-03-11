@@ -107,7 +107,6 @@ class CATEnv(gym.Env):
         """
         return {
             "student_id": self.sid, 
-            "dataset": self.dataset,
             "theta": self.theta,
             "true_theta": self.true_theta,
             "average_times": self.average_times,
@@ -156,7 +155,7 @@ class CATEnv(gym.Env):
         # Reset the state
         self.time_taken_s = 0
         self.theta = self.init_theta
-        self.true_theta = self._get_true_theta()
+        self.true_theta = self._get_true_theta()  # NOTE: probably takes the most time
         self.answered = set()  # items already answered
         self.responses = []  # student responses
         self.discrimination = []  # item discrimination
@@ -200,7 +199,7 @@ class CATEnv(gym.Env):
             raise ValueError(
                 f"Action {action} aka Item ID {item} not found in the dataset. For student ID {self.sid}"
             )
-
+        
         # Extract the item parameters
         discrimination = item_data["discrimination"]
         difficulty = item_data["difficulty"]
@@ -256,10 +255,10 @@ gym.register(
 if __name__ == "__main__":
     from dataloader import dataset_rl
     from IRT import batch_fisher_information
-    import time
     from tqdm import tqdm
     from dqn import get_mask
     from cat_wrappers import *
+    import time
 
     train_data, val_data, test_data = dataset_rl()
     # env = gym.make("CAT-v0", dataset=val_data, time_limit_s=60 * 15)  # 15 minutes
@@ -278,12 +277,12 @@ if __name__ == "__main__":
             "final_score": [1, 1, 1, 1],
         }
     )
+    dataset = val_data
     n_envs = 4
     def make_env():
         env = gym.make(
             "CAT-v0", 
-            dataset=val_data, 
-            # dataset=dummy_data,
+            dataset=dataset,
             time_limit_s=60 * 15,
             # time_limit_s=15,
         )
@@ -300,11 +299,13 @@ if __name__ == "__main__":
         # shared_memory=True,
         copy=False,
     )
+    # Async: 115.28 it/s (4 envs M2 Mac)
+    # Sync: 57.81 it/s (4 envs M2 Mac)
 
     obs, info = env.reset()
 
     n = 1000  # number of students
-    n_items = info["dataset"][0]["item_id"].unique().shape[0]
+    n_items = dataset["item_id"].unique().shape[0]
     true_thetas = np.zeros(n)
     time_aware = False
 
@@ -317,17 +318,17 @@ if __name__ == "__main__":
             start_step = time.time()
             observation, reward, terminated, truncated, info = env.step(action)
             stop_step = time.time()
-            tqdm.write(f"Step time: {stop_step - start_step:.2f}s")
+            tqdm.write(f"Step time: {stop_step - start_step}s")
             
             done_mask = np.logical_or(terminated, truncated)
             if done_mask.any():
                 start_reset = time.time()
                 observation, info = env.reset(options={"mask": done_mask})
                 stop_reset = time.time()
-                tqdm.write(f"Reset time: {stop_reset - start_reset:.2f}s")
+                tqdm.write(f"Reset time: {stop_reset - start_reset}s")
                 runs_so_far += done_mask.sum()
 
                 pbar.update(done_mask.sum())
     stop = time.time()
-    print(f"Time taken: {stop - start:.2f}s")
+    print(f"Time taken: {stop - start}s")
     env.close()

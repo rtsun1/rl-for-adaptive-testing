@@ -11,17 +11,16 @@ class FisherInfoRewards(Wrapper):
     Reward wrapper that returns the Fisher Information of the student's ability estimate
     divided by the response time.
     """
-    def __init__(self, env, reward_scale=100):
+    def __init__(self, env, dataset, reward_scale=100):
         super().__init__(env)
         self.reward_scale = reward_scale
         self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
-        self.dataset = None
+        self.dataset = dataset
         self.student = None
 
     def reset(self, seed = None, options = None):
         obs, info = super().reset(seed=seed, options=options)
         self.answered = info["answered"]
-        self.dataset = info["dataset"]
         self.student = info["sid_idx"]
 
         return obs, info
@@ -82,10 +81,10 @@ class DetailedAnsweredVectorObservation(Wrapper):
     with columns: discrimination, difficulty, response, response time.
     -1 in all entries for rows corresponding to unanswered questions.
     """
-    def __init__(self, env):
+    def __init__(self, env, dataset):
         super().__init__(env)
         self.details_arr = -np.ones(shape=(env.action_space.n, 4), dtype=np.float32)
-        self.dataset = None  # a reference to CATEnv's dataset for filling in details
+        self.dataset = dataset  # a reference to CATEnv's dataset for filling in details
         self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
         self.student = None  # the starting index of the student's questions in the dataset
 
@@ -111,7 +110,6 @@ class DetailedAnsweredVectorObservation(Wrapper):
     def reset(self, seed = None, options = None):
         obs, info = super().reset(seed=seed, options=options)
         self.details_arr.fill(-1)
-        self.dataset = info["dataset"]  # be careful not to modify this reference
         self.answered = info["answered"]
         self.student = info["sid_idx"]
 
@@ -160,7 +158,7 @@ if __name__ == "__main__":
 
     # FisherInfoRewards
     env = gym.make("CAT-v0", dataset=val)
-    env = FisherInfoRewards(env)
+    env = FisherInfoRewards(env, dataset=val)
     obs, info = env.reset()
     obs, reward, terminated, truncated, info = env.step(1)
     assert reward > 0
@@ -190,7 +188,7 @@ if __name__ == "__main__":
 
     # DetailedAnsweredVectorObservation
     env = gym.make("CAT-v0", dataset=val)
-    env = DetailedAnsweredVectorObservation(env)
+    env = DetailedAnsweredVectorObservation(env, dataset=val)
     obs, info = env.reset()
     obs, reward, terminated, truncated, info = env.step(1)
     obs, reward, terminated, truncated, info = env.step(2)
