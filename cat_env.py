@@ -3,7 +3,7 @@ import numpy as np
 from typing import Optional
 import pandas as pd
 
-from IRT import calculate_eap_ability
+from IRT import calculate_eap_ability, batch_fisher_information
 
 class CATEnv(gym.Env):
     def __init__(
@@ -113,6 +113,7 @@ class CATEnv(gym.Env):
             "true_theta": self.true_theta,
             "average_times": self.average_times,
             "answered": self.answered,
+            "sid_idx": self.sid_idx,
         }
     
     def _get_true_theta(self):

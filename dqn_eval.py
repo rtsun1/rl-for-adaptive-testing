@@ -8,6 +8,7 @@ import torch
 from tqdm import tqdm
 
 def evaluate(
+    model,
     model_path: str,
     make_env: Callable,
     make_env_args: dict,
@@ -18,8 +19,9 @@ def evaluate(
 ):
     # make_env_args["capture_video"] = make_env_args.get("capture_video", True)
     envs = gym.vector.SyncVectorEnv([make_env(**make_env_args)], gym.vector.AutoresetMode.DISABLED)
-    model = Model(envs).to(device)
-    model.load_state_dict(torch.load(model_path, map_location=device))
+    if model == None:
+        model = Model(envs).to(device)
+        model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
 
     obs, _ = envs.reset()
@@ -38,6 +40,7 @@ def evaluate(
                     torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
                 )
             next_obs, reward, terminations, truncations, infos = envs.step(actions)
+
 
             done_mask = np.logical_or(terminations, truncations)
             # print(envs)
@@ -58,6 +61,9 @@ def evaluate(
                 obs, _ = envs.reset(options={"mask": done_mask})
             else:
                 obs = next_obs
+
+    # Done eval, go back to train
+    model.train()
 
     return episodic_returns, thetas, true_thetas
 
@@ -89,6 +95,8 @@ if __name__ == "__main__":
         "dataset": val_data,
         "time_limit_s": 60 * 15,  # 15 minutes
         "include_answered": False,  # modify based on model
+        "detailed_answered": False,  # modify based on model,
+        "fisher_rewards": False,  # doesn't matter for evaluation
     }
     episodic_returns, thetas, true_thetas = evaluate(
         model_path,
