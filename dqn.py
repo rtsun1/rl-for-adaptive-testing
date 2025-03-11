@@ -395,6 +395,9 @@ if __name__ == "__main__":
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
             writer.add_scalar("eval/RSME", rmse, global_step)
             print("RMSE: ", rmse)
+            
+            # Save history for sankey diagram
+            histories = infos["action_history"]
 
             if global_step == args.total_timesteps:
                 os.makedirs(f"runs/{run_name}", exist_ok=True)
@@ -404,6 +407,7 @@ if __name__ == "__main__":
                     true_thetas=true_thetas,
                     rmse=rmse,
                     args=args,
+                    histories=histories
                 )
                 print(f"Results saved in runs/{run_name}/results.npz")
 
