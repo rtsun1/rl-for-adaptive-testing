@@ -39,7 +39,7 @@ class RecordActions(Wrapper):
         self.actions = []  # a list for each episode
         self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
     
-    def reset(self, *, seed = None, options = None):
+    def reset(self, seed = None, options = None):
         obs, info = super().reset(seed=seed, options=options)
         self.actions.append([])
         self.answered = info["answered"]
@@ -49,7 +49,6 @@ class RecordActions(Wrapper):
     def step(self, action):
         if action not in self.answered:
             self.actions[-1].append(action)
-            self.answered.add(action)
         obs, reward, terminated, truncated, info = self.env.step(action)
 
         self.answered = info["answered"]  # incase info["answered"] is not a reference
