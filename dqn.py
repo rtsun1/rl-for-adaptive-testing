@@ -130,7 +130,7 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
             env = FisherInfoRewards(env, dataset=dataset)
-        env = RecordActions(env)  # High overhead in AsyncVectorEnv
+        # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # for random sampling actions

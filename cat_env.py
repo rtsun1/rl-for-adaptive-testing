@@ -108,6 +108,7 @@ class CATEnv(gym.Env):
         return {
             "student_id": self.sid, 
             "theta": self.theta,
+            "already_asked": self.action_already_asked,
             "true_theta": self.true_theta,
             "average_times": self.average_times,
             "answered": self.answered,
@@ -156,6 +157,7 @@ class CATEnv(gym.Env):
         self.time_taken_s = 0
         self.theta = self.init_theta
         self.true_theta = self._get_true_theta()  # NOTE: probably takes the most time
+        self.action_already_asked = False  # whether the last action was already asked
         self.answered = set()  # items already answered
         self.responses = []  # student responses
         self.discrimination = []  # item discrimination
@@ -180,6 +182,7 @@ class CATEnv(gym.Env):
         # Also make the reward negative to discourage the agent from selecting the same item
         # print("ANSWERED", self.answered)
         if action in self.answered:
+            self.action_already_asked = True
             return (
                 self._get_obs(),
                 -1,
@@ -188,7 +191,8 @@ class CATEnv(gym.Env):
                 self._get_info(),
             )  # NOTE: returning a reward of -1. might need to tune based on the reward function
         # NOTE: Another potential problem above is an infinite loop if the agent keeps selecting the same item (if this reward is better than normal rewards)
-
+        self.action_already_asked = False
+        
         # Get the index range for student (because dataset is sorted by student_id and item_id)
         start = self.sid_idx * self.n_items
 
