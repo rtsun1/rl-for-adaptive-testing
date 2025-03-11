@@ -228,14 +228,10 @@ class CATEnv(gym.Env):
             self.responses, self.discrimination, self.difficulty, self.theta_range
         )
 
-        # Calculate the fisher information
-        fisher_info = batch_fisher_information(difficulty, discrimination, self.theta)
-
         # Calculate the reward
-        # reward = (
-        #     0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
-        # )
-        reward = 100 * (fisher_info / response_time)
+        reward = (
+            0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
+        )
 
         return self._get_obs(), reward, False, False, self._get_info()
 

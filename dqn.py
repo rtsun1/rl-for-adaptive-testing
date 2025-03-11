@@ -98,7 +98,8 @@ def get_mask(
     shape, answered
 ):  # Masking is differentiable: https://arxiv.org/pdf/2006.14171
     """
-    Return a mask with 1 meaning the question has not been asked.
+    Given a set of answered questions, 
+    return a mask with 1 meaning the question has not been asked.
     Parameters:
         shape (ShapeLike): The desired shape of the returned mask.
         answered (iterable): is an array of sets of answered questions
