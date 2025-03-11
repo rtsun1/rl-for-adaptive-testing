@@ -43,7 +43,7 @@ class RecordActions(Wrapper):
         obs, info = super().reset(seed=seed, options=options)
         self.actions.append([])
         self.answered = info["answered"]
-        info["actions"] = self.actions
+        info["action_history"] = self.actions
         return obs, info
     
     def step(self, action):
@@ -54,7 +54,7 @@ class RecordActions(Wrapper):
 
         self.answered = info["answered"]  # incase info["answered"] is not a reference
 
-        info["actions"] = self.actions
+        info["action_history"] = self.actions
         return obs, reward, terminated, truncated, info
 
 if __name__ == "__main__":
@@ -75,9 +75,9 @@ if __name__ == "__main__":
     env = gym.make("CAT-v0", dataset=val)
     env = RecordActions(env)
     obs, info = env.reset()
-    print(info["actions"])
+    print(info["action_history"])
     obs, reward, terminated, truncated, info = env.step(1)
-    print(info["actions"])
+    print(info["action_history"])
     obs, reward, terminated, truncated, info = env.step(2)
     obs, reward, terminated, truncated, info = env.step(5)
     env.reset()
@@ -86,4 +86,4 @@ if __name__ == "__main__":
     obs, reward, terminated, truncated, info = env.step(2)
 
     env.close()
-    print(info["actions"])
+    print(info["action_history"])
