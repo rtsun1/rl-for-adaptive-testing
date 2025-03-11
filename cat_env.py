@@ -3,7 +3,7 @@ import numpy as np
 from typing import Optional
 import pandas as pd
 
-from IRT import calculate_eap_ability
+from IRT import calculate_eap_ability, batch_fisher_information
 
 class CATEnv(gym.Env):
     def __init__(
@@ -228,10 +228,14 @@ class CATEnv(gym.Env):
             self.responses, self.discrimination, self.difficulty, self.theta_range
         )
 
+        # Calculate the fisher information
+        fisher_info = batch_fisher_information(difficulty, discrimination, self.theta)
+
         # Calculate the reward
-        reward = (
-            0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
-        )
+        # reward = (
+        #     0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
+        # )
+        reward = 100 * (fisher_info / response_time)
 
         return self._get_obs(), reward, False, False, self._get_info()
 
