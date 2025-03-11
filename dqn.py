@@ -391,7 +391,7 @@ if __name__ == "__main__":
                 "dataset": val_data,
                 **main_env_config,
             }
-            episodic_returns, thetas, true_thetas = evaluate(
+            episodic_returns, thetas, true_thetas, histories = evaluate(
                 model=q_network,
                 model_path="",
                 make_env=make_env,
@@ -412,28 +412,47 @@ if __name__ == "__main__":
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
             writer.add_scalar("eval/RSME", rmse, global_step)
             print("RMSE: ", rmse)
-            
-            # Save history for sankey diagram
-            histories = infos["action_history"]
 
-            if global_step == args.total_timesteps:
-                os.makedirs(f"runs/{run_name}", exist_ok=True)
-                np.savez(
-                    f"runs/{run_name}/results.npz",
-                    thetas=thetas,
-                    true_thetas=true_thetas,
-                    rmse=rmse,
-                    args=args,
-                    histories=histories
-                )
-                print(f"Results saved in runs/{run_name}/results.npz")
+    make_env_args = {
+                "seed": args.seed,  # for random sampling actions
+                "dataset": val_data,
+                **main_env_config,
+            }
+    episodic_returns, thetas, true_thetas, histories = evaluate(
+        model=q_network,
+        model_path="",
+        make_env=make_env,
+        make_env_args=make_env_args,
+        eval_episodes=args.eval_episodes,
+        Model=QNetwork,
+        device=device,
+        epsilon=args.eval_epsilon,
+    )
+    for idx, episodic_return in enumerate(episodic_returns):
+        writer.add_scalar("eval/episodic_return", episodic_return, idx)
+    thetas = np.array(thetas)
+    true_thetas = np.array(true_thetas)
+    print("Estimated Thetas:")
+    print(thetas.round(2))
+    print("True Thetas:")
+    print(true_thetas.round(2))
+    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
+    writer.add_scalar("eval/RSME", rmse, global_step)
+    print("RMSE: ", rmse)
+    
+    # Save history for sankey diagram
+    histories = infos["action_history"]
 
-
-    if args.save_model:
-        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
-        torch.save(q_network.state_dict(), model_path)
-        print(f"model saved to {model_path}")
-        print("Done!")
+    os.makedirs(f"runs/{run_name}", exist_ok=True)
+    np.savez(
+        f"runs/{run_name}/results.npz",
+        thetas=thetas,
+        true_thetas=true_thetas,
+        rmse=rmse,
+        args=args,
+        histories=histories
+    )
+    print(f"Results saved in runs/{run_name}/results.npz")
 
     #     if args.upload_model:
     #         from cleanrl_utils.huggingface import push_to_hub
@@ -448,6 +467,10 @@ if __name__ == "__main__":
     #             f"runs/{run_name}",
     #             f"videos/{run_name}-eval",
     #         )
-
+    if args.save_model:
+        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+        torch.save(q_network.state_dict(), model_path)
+        print(f"model saved to {model_path}")
+        print("Done!")
     envs.close()
     writer.close()

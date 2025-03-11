@@ -62,10 +62,12 @@ def evaluate(
             else:
                 obs = next_obs
 
+    histories = infos["histories"]
+    envs.close()
     # Done eval, go back to train
     model.train()
 
-    return episodic_returns, thetas, true_thetas
+    return episodic_returns, thetas, true_thetas, histories
 
 
 if __name__ == "__main__":
@@ -73,7 +75,7 @@ if __name__ == "__main__":
 
     from dqn import QNetwork, make_env
     from dataloader import dataset_rl
-    model_path = "runs/CAT-v0__dqn__42__1741654768/dqn.cleanrl_model"
+    model_path = "runs/CAT-v0__dqn_danic_rep_500000_train_steps_1000_students__42__1741685881/dqn_danic_rep_500000_train_steps_1000_students.cleanrl_model"
     # model_path = hf_hub_download(
     #     repo_id="cleanrl/CartPole-v1-dqn-seed1", filename="q_network.pth"
     # )
@@ -95,17 +97,17 @@ if __name__ == "__main__":
         "dataset": val_data,
         "time_limit_s": 60 * 15,  # 15 minutes
         "include_answered": False,  # modify based on model
-        "detailed_answered": False,  # modify based on model,
+        "detailed_answered": True,  # modify based on model,
         "fisher_rewards": False,  # doesn't matter for evaluation
     }
-    episodic_returns, thetas, true_thetas = evaluate(
+    episodic_returns, thetas, true_thetas, histories = evaluate(
         model_path,
         make_env,
         make_env_args,
         eval_episodes=1000,
         Model=QNetwork,
         device=device,
-        epsilon=1,
+        epsilon=0.05,
     )
     print(episodic_returns)
 

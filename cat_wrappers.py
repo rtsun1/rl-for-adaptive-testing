@@ -56,9 +56,8 @@ class AnsweredVectorObservation(Wrapper):
         # Define observation space
         self.observation_space = gym.spaces.Dict(
             {
-                "theta": env.observation_space["theta"],
-                "time_left": env.observation_space["time_left"],
                 "answered": gym.spaces.MultiBinary(n=self.n_items),
+                **env.observation_space
             }
         )
     
@@ -95,14 +94,75 @@ class DetailedAnsweredVectorObservation(Wrapper):
         # Define observation space
         self.observation_space = gym.spaces.Dict(
             {
-                "theta": env.observation_space["theta"],
-                "time_left": env.observation_space["time_left"],
-                "answered": gym.spaces.Box(
+                "detail_answered": gym.spaces.Box(
                     low=-1, 
                     high=np.inf,  # NOTE: for now, no upper bound on any of the columns (only impacts observation_space.sample())
                     shape=(env.action_space.n, 4), 
                     dtype=np.float32
                 ),
+                **env.observation_space
+            }
+        )
+    
+    def _add_answered(self, obs):
+        details_arr = self.details_arr.view()
+        details_arr.flags.writeable = False  # don't let user mess with wrapper's details_arr
+        obs["detail_answered"] = details_arr
+        return obs
+    
+    def reset(self, seed = None, options = None):
+        obs, info = super().reset(seed=seed, options=options)
+        self.details_arr.fill(-1)
+        self.dataset = info["dataset"]  # be careful not to modify this reference
+        self.answered = info["answered"]
+        self.student = info["sid_idx"]
+
+        return self._add_answered(obs), info
+    
+    def step(self, action):
+        if action not in self.answered:
+            # fill in details_arr
+            self.details_arr[action, 0] = self.dataset.iloc[action]["discrimination"]  # assuming sorted by student_id then question_id
+            self.details_arr[action, 1] = self.dataset.iloc[action]["difficulty"]
+            self.details_arr[action, 2] = self.dataset.iloc[self.student + action]["response"]
+            self.details_arr[action, 3] = self.dataset.iloc[self.student + action]["response_time"]
+
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        self.answered = info["answered"]  # incase info["answered"] is not a reference
+
+        return self._add_answered(obs), reward, terminated, truncated, info
+    
+class AggregatedVectorObservation(Wrapper):
+    """
+    Add to the observation space an array (n_agg_features,)
+    with agg features:
+        - num questions answered
+        - num correct answers
+        - proportion correct answers
+        - mean difficulty
+        - mean discrimination
+        - mean response time
+        - log mean response time (normalize for uncommon large response times)
+    """
+    def __init__(self, env):
+        super().__init__(env)
+        self.details_arr = -np.ones(shape=(env.action_space.n, 4), dtype=np.float32)
+        self.dataset = None  # a reference to CATEnv's dataset for filling in details
+        self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
+        self.student = None  # the starting index of the student's questions in the dataset
+
+        # Define observation space
+        self.observation_space = gym.spaces.Dict(
+            {
+                "num_answered": gym.spaces.Discrete(n=env.action_space.n),
+                "num_correct": gym.spaces.Discrete(n=env.action_space.n),
+                "prop_correct": gym.spaces.Box(low=0, high=1, shape=(1,), dtype=np.float32),
+                "mean_difficulty": gym.spaces.Box(low=-1, high=np.inf, shape=(1,), dtype=np.float32),
+                "mean_discrimination": gym.spaces.Box(low=-1, high=np.inf, shape=(1,), dtype=np.float32),
+                "mean_response_time": gym.spaces.Box(low=-1, high=np.inf, shape=(1,), dtype=np.float32),
+                "log_mean_response_time": gym.spaces.Box(low=-1, high=np.inf, shape=(1,), dtype=np.float32),
+                **env.observation_space,
             }
         )
     
@@ -163,23 +223,23 @@ if __name__ == "__main__":
     train, val, test = dataset_rl()
 
     # FisherInfoRewards
-    env = gym.make("CAT-v0", dataset=val)
-    env = FisherInfoRewards(env)
-    obs, info = env.reset()
-    obs, reward, terminated, truncated, info = env.step(1)
-    print(reward)
-    obs, reward, terminated, truncated, info = env.step(2)
-    print(reward)
-    obs, reward, terminated, truncated, info = env.step(5)
-    print(reward)
-    obs, reward, terminated, truncated, info = env.step(1)
-    print(reward)  # should be -1
+    # env = gym.make("CAT-v0", dataset=val)
+    # env = FisherInfoRewards(env)
+    # obs, info = env.reset()
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # print(reward)
+    # obs, reward, terminated, truncated, info = env.step(2)
+    # print(reward)
+    # obs, reward, terminated, truncated, info = env.step(5)
+    # print(reward)
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # print(reward)  # should be -1
 
-    while not terminated:  # finish the episode
-        a = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(a)
-    print(reward)  # should be -(squared error)
-    env.close()
+    # while not terminated:  # finish the episode
+    #     a = env.action_space.sample()
+    #     obs, reward, terminated, truncated, info = env.step(a)
+    # print(reward)  # should be -(squared error)
+    # env.close()
 
     # AnsweredVectorObservation
     # env = gym.make("CAT-v0", dataset=val)
@@ -207,6 +267,22 @@ if __name__ == "__main__":
     # obs, reward, terminated, truncated, info = env.step(1)
     # print(obs)
     # env.close()
+
+    # AggregatedVectorObservation
+    env = gym.make("CAT-v0", dataset=val)
+    env = AggregatedVectorObservation(env)
+    obs, info = env.reset()
+    print(env.observation_space)
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # obs, reward, terminated, truncated, info = env.step(2)
+    # obs, reward, terminated, truncated, info = env.step(5)
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # print(obs)
+    # env.reset()
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # obs, reward, terminated, truncated, info = env.step(1)
+    # print(obs)
+    env.close()
 
     # RecordActions
     # env = gym.make("CAT-v0", dataset=val)
