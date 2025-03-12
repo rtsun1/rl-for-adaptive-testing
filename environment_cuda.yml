@@ -1,0 +1,19 @@
+name: cat_cuda
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - tensorboard
+  - pandas
+  - scipy
+  - tqdm
+  - tyro
+  - stable-baselines3
+  - wandb
+  - seaborn
+  - plotly
+  - nbformat
+  - pip:
+    - gymnasium==1.1.0
+    - ipykernel
