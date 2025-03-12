@@ -449,7 +449,7 @@ if __name__ == "__main__":
     print("True Thetas:")
     print(true_thetas.round(2))
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-    writer.add_scalar("eval/RSME", rmse, global_step)
+    writer.add_scalar("eval/RMSE", rmse, global_step)
     print("RMSE: ", rmse)
 
     os.makedirs(f"runs/{run_name}", exist_ok=True)
