@@ -279,7 +279,7 @@ if __name__ == "__main__":
         if random.random() < epsilon:
             if args.mask_answered:
                 mask = get_mask((envs.num_envs, envs.single_action_space.n), infos["answered"])
-                action = envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+                actions = envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
             else:
                 actions = envs.action_space.sample()
             # print("DEBUG : global step ", global_step, " random ", actions)
@@ -451,17 +451,17 @@ if __name__ == "__main__":
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
     writer.add_scalar("eval/RSME", rmse, global_step)
     print("RMSE: ", rmse)
-    # Save history for sankey diagram
-    histories = infos["action_history"]
 
     os.makedirs(f"runs/{run_name}", exist_ok=True)
+    packaged_histories = np.zeros(1, dtype=object)
+    packaged_histories[0] = histories
     np.savez(
         f"runs/{run_name}/results.npz",
         thetas=thetas,
         true_thetas=true_thetas,
         rmse=rmse,
         args=args,
-        histories=histories
+        histories=packaged_histories,
     )
     print(f"Results saved in runs/{run_name}/results.npz")
     if args.save_model:

@@ -17,7 +17,7 @@ python greedy.py --time-aware --exp-name "greedy_time_aware_${eval_size}_student
 
 # DQN
 echo "Running DQN"
-dqn_args="$default_args --num-envs $num_envs --total-timesteps $train_steps"
+dqn_args="$default_args --num-envs $num_envs --total-timesteps $train_steps --no-cuda"  # on mac, with small Q net, cpu is faster
 python dqn.py --exp-name "dqn_${train_steps}_train_steps_${eval_size}_students" $dqn_args
 python dqn.py --mask-answered --exp-name "dqn_mask_${train_steps}_train_steps_${eval_size}_students" $dqn_args
 python dqn.py --include-answered --exp-name "dqn_include_answered_${train_steps}_train_steps_${eval_size}_students" $dqn_args
