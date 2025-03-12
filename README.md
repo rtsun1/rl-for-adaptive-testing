@@ -22,6 +22,9 @@ conda install pytorch-cuda=12.1 -c pytorch -c nvidia -y
 ```bash
 conda install pytorch torchvision torchaudio -c pytorch -c nvidia - y
 ```
+```bash
+conda env update -f environment_cuda.yml --prune
+```
 
 
 ## Computer Adaptive Testing Environment
