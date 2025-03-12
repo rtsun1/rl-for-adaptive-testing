@@ -119,25 +119,25 @@ class CATEnv(gym.Env):
         """
         Get the true theta for the student
         """
-        # return self.dataset.iloc
-        start = self.sid_idx * self.n_items
-        stop = (self.sid_idx + 1) * self.n_items
+        return self.dataset.iloc[self.sid_idx * self.n_items]["final_score"]  # just get the precomputed final score
+        # start = self.sid_idx * self.n_items
+        # stop = (self.sid_idx + 1) * self.n_items
 
-        all_responses = self.dataset.iloc[start:stop][
-            "response"
-        ].values
-        all_discrimination = self.dataset[start:stop][
-            "discrimination"
-        ].values
-        all_difficulty = self.dataset[start:stop][
-            "difficulty"
-        ].values
+        # all_responses = self.dataset.iloc[start:stop][
+        #     "response"
+        # ].values
+        # all_discrimination = self.dataset[start:stop][
+        #     "discrimination"
+        # ].values
+        # all_difficulty = self.dataset[start:stop][
+        #     "difficulty"
+        # ].values
 
-        true_theta, _ = calculate_eap_ability(
-            all_responses, all_discrimination, all_difficulty, self.theta_range
-        )
+        # true_theta, _ = calculate_eap_ability(
+        #     all_responses, all_discrimination, all_difficulty, self.theta_range
+        # )
 
-        return true_theta
+        # return true_theta
         
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
