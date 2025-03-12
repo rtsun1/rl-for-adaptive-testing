@@ -18,9 +18,12 @@ from gymnasium.spaces.utils import flatten
 
 from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards
 
+from typing import Callable
 from tqdm import tqdm
-from dqn_eval import evaluate
+from dqn_eval import Evaluator
 
+import stable_baselines3 as sb3
+from dataloader import dataset_rl
 
 @dataclass
 class Args:
@@ -44,6 +47,8 @@ class Args:
     """whether to upload the saved model to huggingface"""
     hf_entity: str = ""
     """the user or org name of the model repository from the Hugging Face Hub"""
+    log_interval: int = 5000
+    """the interval between logging phase runtimes"""
 
     # Environment specific arguments
     time_limit_s: int = 60 * 15
@@ -130,7 +135,7 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
             env = FisherInfoRewards(env, dataset=dataset)
-        # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead
+        # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead. Also messes up new evaluate implementation.
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
@@ -138,6 +143,41 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
 
     return thunk
 
+class Agent:
+    def __init__(self, model: nn.Module, device, envs: gym.vector.VectorEnv, mask_answered=False):
+        self.model = model
+        self.device = device
+        self.envs = envs
+        self.mask_answered = mask_answered
+
+    def get_action(self, obs, infos, epsilon=0.05):
+        """Given an observation, choose an action."""
+        if random.random() < epsilon:
+            if self.mask_answered:
+                mask = get_mask((self.envs.num_envs, self.envs.single_action_space.n), infos["answered"])
+            else:
+                mask = np.ones((self.envs.num_envs, self.envs.single_action_space.n), dtype=np.int8)
+            actions = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+        else:
+            q_values = self.model(torch.Tensor(obs).to(self.device))
+            if self.mask_answered:
+                mask = get_mask(q_values.shape, infos["answered"])  # masking
+                q_values[np.logical_not(mask)] = -np.inf
+            q_values = self.model(torch.Tensor(obs).to(self.device))
+            actions = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
+
+        return actions
+
+    # def update(self, obs, actions, rewards, next_obs, dones):
+    #     """Update the model with the observed results."""
+        
+    def train(self):
+        """Set the model to train mode."""
+        self.model.train()
+    
+    def eval(self):
+        """Set the model to evaluation mode."""
+        self.model.eval()
 
 # TODO : Change QNetwork according to paper spec
 # ALGO LOGIC: initialize agent here:
@@ -161,24 +201,22 @@ class QNetwork(nn.Module):
             x
         )  # TODO: implement masking here to allow for differentiable masking
 
-
 # SCHEDULER :  for epsilon (exploration)
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
+def learn(args: Args, evaluator: Evaluator = None):
+    """
+    The main function to learn the model.
 
-if __name__ == "__main__":
-    import stable_baselines3 as sb3
-    from dataloader import dataset_rl
-
-    if sb3.__version__ < "2.0":
-        raise ValueError(
-            """Ongoing migration: run the following command to install the new dependencies:
-            poetry run pip install "stable_baselines3==2.0.0a1"
-            """
-        )
-    args = tyro.cli(Args)
+    :param args: the arguments to run the experiment
+    :param evaluator: the evaluation class to evaluate the model. 
+    Outputs whether to this hyperparameter setting is pruned or not.
+    """
+    if evaluator is None:
+        evaluator = Evaluator()
+    pruned = False
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
@@ -231,6 +269,16 @@ if __name__ == "__main__":
         autoreset_mode=gym.vector.AutoresetMode.DISABLED,  # see https://farama.org/Vector-Autoreset-Mode
         copy=False,
     )
+    # 4 envs, M2 chip:
+    # Sync: ~33 ep/s
+    # Async: ~20 ep/s
+    eval_envs = gym.vector.SyncVectorEnv(
+        [
+            make_env(seed=args.seed + i, dataset=val_data, **main_env_config)
+            for i in range(args.num_envs)
+        ],
+        copy=False,
+    )
     # env = gym.make(args.env_id, dataset_f=args.dataset_f)
     assert isinstance(
         envs.single_action_space, gym.spaces.Discrete
@@ -240,6 +288,8 @@ if __name__ == "__main__":
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
+
+    agent = Agent(model=q_network, device=device, envs=envs, mask_answered=args.mask_answered)
 
     # print("DEBUG args.buffer_size : ", args.buffer_size)
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
@@ -276,30 +326,9 @@ if __name__ == "__main__":
         # print("DEBUG obs : ", obs)
         # print("DEBUG flattened_obs : ", flattened_obs)
 
-        if random.random() < epsilon:
-            if args.mask_answered:
-                mask = get_mask((envs.num_envs, envs.single_action_space.n), infos["answered"])
-                actions = envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
-            else:
-                actions = envs.action_space.sample()
-            # print("DEBUG : global step ", global_step, " random ", actions)
-        else:
-            start_forward_time = time.time()
-
-            q_values = q_network(torch.Tensor(obs).to(device))
-            if args.mask_answered:
-                mask = get_mask(q_values.shape, infos["answered"])  # masking
-                q_values[np.logical_not(mask)] = -np.inf
-            # print("DEBUG q_values  : ", q_values)
-            actions = (
-                torch.argmax(
-                    q_values, dim=1
-                )  # TODO : Check if modifying dim to 0 crashes batche
-                .cpu()
-                .numpy()
-            )
-
-            forward_times.append(time.time() - start_forward_time)
+        start_forward_time = time.time()
+        actions = agent.get_action(obs, infos, epsilon=epsilon)
+        forward_times.append(time.time() - start_forward_time)
             # print("DEBUG : global step ", global_step, " q-network ", actions)
 
         # print(
@@ -341,9 +370,7 @@ if __name__ == "__main__":
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         if done_mask.any():
             start_reset_time = time.time()
-
             obs, _ = envs.reset(options={"mask": done_mask})
-
             reset_times.append(time.time() - start_reset_time)
         else:
             obs = next_obs
@@ -391,7 +418,7 @@ if __name__ == "__main__":
                         + (1.0 - args.tau) * target_network_param.data
                     )
         # Periodically log time
-        if global_step % 5000 == 0:  # TODO: remove hardcoded interval
+        if global_step % args.log_interval == 0:  # TODO: remove hardcoded interval
             tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
             env_times = []
             train_times = []
@@ -400,20 +427,10 @@ if __name__ == "__main__":
 
         # PERIODICALLY EVAL
         if global_step % args.eval_frequency == 0:
-            make_env_args = {
-                "seed": args.seed,  # for random sampling actions
-                "dataset": val_data,
-                **main_env_config,
-            }
-            episodic_returns, thetas, true_thetas, histories = evaluate(
-                model=q_network,
-                model_path="",
-                make_env=make_env,
-                make_env_args=make_env_args,
+            episodic_returns, thetas, true_thetas, histories, pruned = evaluator.evaluate(
+                agent=agent,
+                envs=eval_envs,
                 eval_episodes=args.eval_episodes,
-                num_envs=args.num_envs,
-                Model=QNetwork,
-                device=device,
                 epsilon=args.eval_epsilon,
             )
             for episodic_return in episodic_returns:
@@ -424,65 +441,71 @@ if __name__ == "__main__":
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
             writer.add_scalar("eval/RMSE", rmse, global_step)
 
-    make_env_args = {
-        "seed": args.seed,  # for random sampling actions
-        "dataset": val_data,
-        **main_env_config,
-    }
-    episodic_returns, thetas, true_thetas, histories = evaluate(
-        model=q_network,
-        model_path="",
-        make_env=make_env,
-        make_env_args=make_env_args,
-        eval_episodes=args.eval_episodes,
-        num_envs=args.num_envs,
-        Model=QNetwork,
-        device=device,
-        epsilon=args.eval_epsilon,
-    )
-    for idx, episodic_return in enumerate(episodic_returns):
-        writer.add_scalar("eval/episodic_return", episodic_return, idx)
-    thetas = np.array(thetas)
-    true_thetas = np.array(true_thetas)
-    print("Estimated Thetas:")
-    print(thetas.round(2))
-    print("True Thetas:")
-    print(true_thetas.round(2))
-    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-    writer.add_scalar("eval/RMSE", rmse, global_step)
-    print("RMSE: ", rmse)
+            if pruned:
+                break
 
-    os.makedirs(f"runs/{run_name}", exist_ok=True)
-    packaged_histories = np.zeros(1, dtype=object)
-    packaged_histories[0] = histories
-    np.savez(
-        f"runs/{run_name}/results.npz",
-        thetas=thetas,
-        true_thetas=true_thetas,
-        rmse=rmse,
-        args=args,
-        histories=packaged_histories,
-    )
-    print(f"Results saved in runs/{run_name}/results.npz")
-    if args.save_model:
-        model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
-        torch.save(q_network.state_dict(), model_path)
-        print(f"model saved to {model_path}")
-        print("Done!")
+    # Final evaluation
+    if not pruned:
+        episodic_returns, thetas, true_thetas, histories, pruned = evaluator.evaluate(
+            agent=agent,
+            envs=eval_envs,
+            eval_episodes=args.eval_episodes,
+            epsilon=args.eval_epsilon,
+        )
+        for idx, episodic_return in enumerate(episodic_returns):
+            writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        thetas = np.array(thetas)
+        true_thetas = np.array(true_thetas)
+        print("Estimated Thetas:")
+        print(thetas.round(2))
+        print("True Thetas:")
+        print(true_thetas.round(2))
+        rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
+        writer.add_scalar("eval/RMSE", rmse, global_step)
+        print("RMSE: ", rmse)
 
-    #     if args.upload_model:
-    #         from cleanrl_utils.huggingface import push_to_hub
+        os.makedirs(f"runs/{run_name}", exist_ok=True)
+        packaged_histories = np.zeros(1, dtype=object)
+        packaged_histories[0] = histories
+        np.savez(
+            f"runs/{run_name}/results.npz",
+            thetas=thetas,
+            true_thetas=true_thetas,
+            rmse=rmse,
+            args=args,
+            histories=packaged_histories,
+        )
+        print(f"Results saved in runs/{run_name}/results.npz")
+        if args.save_model:
+            model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
+            torch.save(q_network.state_dict(), model_path)
+            print(f"model saved to {model_path}")
+            print("Done!")
 
-    #         repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
-    #         repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
-    #         push_to_hub(
-    #             args,
-    #             episodic_returns,
-    #             repo_id,
-    #             "DQN",
-    #             f"runs/{run_name}",
-    #             f"videos/{run_name}-eval",
-    #         )
+        #     if args.upload_model:
+        #         from cleanrl_utils.huggingface import push_to_hub
 
-    envs.close()
-    writer.close()
+        #         repo_name = f"{args.env_id}-{args.exp_name}-seed{args.seed}"
+        #         repo_id = f"{args.hf_entity}/{repo_name}" if args.hf_entity else repo_name
+        #         push_to_hub(
+        #             args,
+        #             episodic_returns,
+        #             repo_id,
+        #             "DQN",
+        #             f"runs/{run_name}",
+        #             f"videos/{run_name}-eval",
+        #         )
+
+        envs.close()
+        eval_envs.close()
+        writer.close()
+
+if __name__ == "__main__":
+    if sb3.__version__ < "2.0":
+        raise ValueError(
+            """Ongoing migration: run the following command to install the new dependencies:
+            poetry run pip install "stable_baselines3==2.0.0a1"
+            """
+        )
+    args = tyro.cli(Args)
+    learn(args)
