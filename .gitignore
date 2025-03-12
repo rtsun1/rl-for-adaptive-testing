@@ -21,3 +21,4 @@ __pycache__/
 wandb/*
 out/*
 /graphs
+data/test_data.csv
