@@ -127,10 +127,10 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
         if include_answered:
             env = AnsweredVectorObservation(env)
         elif detailed_answered:
-            env = DetailedAnsweredVectorObservation(env)
+            env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
-            env = FisherInfoRewards(env)
-        env = RecordActions(env)
+            env = FisherInfoRewards(env, dataset=dataset)
+        # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
@@ -179,7 +179,6 @@ if __name__ == "__main__":
             """
         )
     args = tyro.cli(Args)
-    assert args.num_envs == 1, "vectorized envs are not supported at the moment"
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     if args.track:
         import wandb
@@ -209,6 +208,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
     print("Using Device : ", device)
 
     # env setup
@@ -220,12 +220,16 @@ if __name__ == "__main__":
             "fisher_rewards": args.fisher_rewards,
         }  # just need to specify: seed, dataset
     
-    envs = gym.vector.SyncVectorEnv(
+    # 4 envs
+    # Sync: env step time ~= 0.0007 (NOTE: with record actions and using action_history for dqn_eval, was 0.0001 somehow...)
+    # Async: env step time ~= 0.0004
+    envs = gym.vector.AsyncVectorEnv(
         [
             make_env(seed=args.seed + i, dataset=train_data, **main_env_config)
             for i in range(args.num_envs)
         ],
         autoreset_mode=gym.vector.AutoresetMode.DISABLED,  # see https://farama.org/Vector-Autoreset-Mode
+        copy=False,
     )
     # env = gym.make(args.env_id, dataset_f=args.dataset_f)
     assert isinstance(
@@ -241,28 +245,25 @@ if __name__ == "__main__":
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
     # print("DEBUG env.single_action_space : ", env.single_action_space)
 
-    # replay_buffer = DictReplayBuffer(
-    #     args.buffer_size,
-    #     envs.single_observation_space,
-    #     envs.single_action_space,
-    #     device,
-    #     handle_timeout_termination=False,
-    # )
-
     replay_buffer = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
         envs.single_action_space,
         device,
+        envs.num_envs,
         handle_timeout_termination=False,
     )
 
     start_time = time.time()
+    env_times = []  # track time to step the env
+    forward_times = []  # track time to forward the model
+    train_times = []
+    reset_times = []
 
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
-
+    step_counter = {"eval_episodes": 0}
     for global_step in tqdm(range(args.total_timesteps)):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(
@@ -277,16 +278,14 @@ if __name__ == "__main__":
 
         if random.random() < epsilon:
             if args.mask_answered:
-                mask = get_mask(
-                    envs.single_action_space.n, infos["answered"]
-                )  # masking
-                actions = np.array(envs.single_action_space.sample(mask=mask)).reshape(
-                    1
-                )
+                mask = get_mask((envs.num_envs, envs.single_action_space.n), infos["answered"])
+                actions = envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
             else:
-                actions = np.array(envs.single_action_space.sample()).reshape(1)
+                actions = envs.action_space.sample()
             # print("DEBUG : global step ", global_step, " random ", actions)
         else:
+            start_forward_time = time.time()
+
             q_values = q_network(torch.Tensor(obs).to(device))
             if args.mask_answered:
                 mask = get_mask(q_values.shape, infos["answered"])  # masking
@@ -298,9 +297,9 @@ if __name__ == "__main__":
                 )  # TODO : Check if modifying dim to 0 crashes batche
                 .cpu()
                 .numpy()
-            ).reshape(
-                1,
             )
+
+            forward_times.append(time.time() - start_forward_time)
             # print("DEBUG : global step ", global_step, " q-network ", actions)
 
         # print(
@@ -312,7 +311,9 @@ if __name__ == "__main__":
         # )
 
         # TRY NOT TO MODIFY: execute the game and log data.
+        start_env_time = time.time()
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        env_times.append(time.time() - start_env_time)
         # print(rewards)
         # Get done envs
         done_mask = np.logical_or(terminations, truncations)
@@ -322,11 +323,9 @@ if __name__ == "__main__":
             returns = infos["episode"]["r"][done_mask]
             episode_lengths = infos["episode"]["l"][done_mask]
             for i in range(returns.shape[0]):
-                tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
-                writer.add_scalar("charts/episodic_return", returns[i], global_step)
-                writer.add_scalar(
-                    "charts/episodic_length", episode_lengths[i], global_step
-                )
+                # tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
+                writer.add_scalar("training/episodic_return", returns[i], global_step)
+                writer.add_scalar("training/episodic_length", episode_lengths[i], global_step)
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         # NOTE: Fixed based on: https://farama.org/Vector-Autoreset-Mode
@@ -341,13 +340,19 @@ if __name__ == "__main__":
 
         # TRY NOT TO MODIFY: CRUCIAL step easy to overlook
         if done_mask.any():
+            start_reset_time = time.time()
+
             obs, _ = envs.reset(options={"mask": done_mask})
+
+            reset_times.append(time.time() - start_reset_time)
         else:
             obs = next_obs
 
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
+                start_train_time = time.time()
+
                 data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
                     target_max, _ = target_network(data.next_observations).max(dim=1)
@@ -374,6 +379,8 @@ if __name__ == "__main__":
                 loss.backward()
                 optimizer.step()
 
+                train_times.append(time.time() - start_train_time)
+                
             # update target network
             if global_step % args.target_network_frequency == 0:
                 for target_network_param, q_network_param in zip(
@@ -383,6 +390,13 @@ if __name__ == "__main__":
                         args.tau * q_network_param.data
                         + (1.0 - args.tau) * target_network_param.data
                     )
+        # Periodically log time
+        if global_step % 5000 == 0:  # TODO: remove hardcoded interval
+            tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
+            env_times = []
+            train_times = []
+            forward_times = []
+            reset_times = []
 
         # PERIODICALLY EVAL
         if global_step % args.eval_frequency == 0:
@@ -391,44 +405,65 @@ if __name__ == "__main__":
                 "dataset": val_data,
                 **main_env_config,
             }
-            episodic_returns, thetas, true_thetas = evaluate(
+            episodic_returns, thetas, true_thetas, histories = evaluate(
                 model=q_network,
                 model_path="",
                 make_env=make_env,
                 make_env_args=make_env_args,
                 eval_episodes=args.eval_episodes,
+                num_envs=args.num_envs,
                 Model=QNetwork,
                 device=device,
                 epsilon=args.eval_epsilon,
             )
-            for idx, episodic_return in enumerate(episodic_returns):
-                writer.add_scalar("eval/episodic_return", episodic_return, idx)
+            for episodic_return in episodic_returns:
+                writer.add_scalar("eval/episodic_return", episodic_return, global_step)
+                step_counter["eval_episodes"] += 1
             thetas = np.array(thetas)
             true_thetas = np.array(true_thetas)
-            print("Estimated Thetas:")
-            print(thetas.round(2))
-            print("True Thetas:")
-            print(true_thetas.round(2))
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-            writer.add_scalar("eval/RSME", rmse, global_step)
-            print("RMSE: ", rmse)
-            
-            # Save history for sankey diagram
-            histories = infos["action_history"]
+            writer.add_scalar("eval/RMSE", rmse, global_step)
 
-            if global_step == args.total_timesteps:
-                os.makedirs(f"runs/{run_name}", exist_ok=True)
-                np.savez(
-                    f"runs/{run_name}/results.npz",
-                    thetas=thetas,
-                    true_thetas=true_thetas,
-                    rmse=rmse,
-                    args=args,
-                    histories=histories
-                )
-                print(f"Results saved in runs/{run_name}/results.npz")
+    make_env_args = {
+        "seed": args.seed,  # for random sampling actions
+        "dataset": val_data,
+        **main_env_config,
+    }
+    episodic_returns, thetas, true_thetas, histories = evaluate(
+        model=q_network,
+        model_path="",
+        make_env=make_env,
+        make_env_args=make_env_args,
+        eval_episodes=args.eval_episodes,
+        num_envs=args.num_envs,
+        Model=QNetwork,
+        device=device,
+        epsilon=args.eval_epsilon,
+    )
+    for idx, episodic_return in enumerate(episodic_returns):
+        writer.add_scalar("eval/episodic_return", episodic_return, idx)
+    thetas = np.array(thetas)
+    true_thetas = np.array(true_thetas)
+    print("Estimated Thetas:")
+    print(thetas.round(2))
+    print("True Thetas:")
+    print(true_thetas.round(2))
+    rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
+    writer.add_scalar("eval/RMSE", rmse, global_step)
+    print("RMSE: ", rmse)
 
-
+    os.makedirs(f"runs/{run_name}", exist_ok=True)
+    packaged_histories = np.zeros(1, dtype=object)
+    packaged_histories[0] = histories
+    np.savez(
+        f"runs/{run_name}/results.npz",
+        thetas=thetas,
+        true_thetas=true_thetas,
+        rmse=rmse,
+        args=args,
+        histories=packaged_histories,
+    )
+    print(f"Results saved in runs/{run_name}/results.npz")
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
         torch.save(q_network.state_dict(), model_path)

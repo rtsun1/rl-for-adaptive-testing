@@ -53,9 +53,9 @@ def greedy_fi(args: Args):
     # Greedy FI Algorithm
     obs, info = env.reset()
 
-    n_items = info["dataset"]["item_id"].unique().shape[0]
-    diffs = info["dataset"]["difficulty"].unique()  # unique preserves order of appearance
-    discs = info["dataset"]["discrimination"].unique()
+    n_items = val_data["item_id"].unique().shape[0]
+    diffs = val_data["difficulty"].unique()  # unique preserves order of appearance
+    discs = val_data["discrimination"].unique()
     thetas = np.zeros(n)  # estimated thetas
     true_thetas = np.zeros(n)
 
