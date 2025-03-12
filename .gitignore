@@ -17,7 +17,8 @@ data
 pisa_data.csv
 
 runs/*
-__pycache__/*
+__pycache__/
 wandb/*
 out/*
 /graphs
+data/test_data.csv

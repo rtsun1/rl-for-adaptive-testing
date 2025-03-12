@@ -68,6 +68,27 @@ def calculate_fisher_information(data, item_id, ability):
 
     return fisher_info
 
+def batch_fisher_information(difficulty, discrimination, ability):
+    """
+    Calculate the Fisher information for multiple items using the 2PL model.
+
+    Parameters:
+        difficulty (array-like): Item difficulties. (n_items,)
+        discrimination (array-like): Item discriminations. (n_items,)
+        theta (float): Ability level.
+
+    Returns:
+        numpy.ndarray: Fisher information values for each item. Shape: (n_items,)
+    """
+    # Compute the probability of a correct response under the 2PL model
+    prob_correct = 1 / (1 + np.exp(-discrimination * (ability - difficulty)))
+    prob_incorrect = 1 - prob_correct
+
+    # Fisher information 
+    fisher_info = discrimination ** 2 * prob_correct * prob_incorrect
+
+    return fisher_info
+
 if __name__ == "__main__":
     # Example usage:
 
@@ -96,24 +117,5 @@ if __name__ == "__main__":
     example_fisher_info = calculate_fisher_information(data, item_id = 2053236, ability = -1)
     print(f"Fisher Information: {example_fisher_info}")
 
-def batch_fisher_information(difficulty, discrimination, ability):
-    """
-    Calculate the Fisher information for multiple items using the 2PL model.
 
-    Parameters:
-        difficulty (array-like): Item difficulties. (n_items,)
-        discrimination (array-like): Item discriminations. (n_items,)
-        theta (float): Ability level.
-
-    Returns:
-        numpy.ndarray: Fisher information values for each item. Shape: (n_items,)
-    """
-    # Compute the probability of a correct response under the 2PL model
-    prob_correct = 1 / (1 + np.exp(-discrimination * (ability - difficulty)))
-    prob_incorrect = 1 - prob_correct
-
-    # Fisher information 
-    fisher_info = discrimination ** 2 * prob_correct * prob_incorrect
-
-    return fisher_info
     
