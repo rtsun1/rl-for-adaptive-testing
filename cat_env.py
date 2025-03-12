@@ -2,6 +2,8 @@ import gymnasium as gym
 import numpy as np
 from typing import Optional
 import pandas as pd
+from ability_level_model import RegressionModel
+import torch
 
 from IRT import calculate_eap_ability, batch_fisher_information
 
@@ -28,6 +30,8 @@ class CATEnv(gym.Env):
         theta_ub: upper bound for theta
         """
         super().__init__()  # may not be necessary, but it's good practice
+        self.reg_model = RegressionModel().to("cuda")
+        self.reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt"))
 
         self.dataset = self._sort_dataset(dataset)
         
@@ -223,18 +227,31 @@ class CATEnv(gym.Env):
         self.difficulty.append(difficulty)
 
         # Calculate the EAP ability
-        self.theta, _ = calculate_eap_ability(
-            self.responses, self.discrimination, self.difficulty, self.theta_range
-        )
+        #self.theta, _ = calculate_eap_ability(
+        #    self.responses, self.discrimination, self.difficulty, self.theta_range
+        #)
 
         # Calculate the fisher information
-        fisher_info = batch_fisher_information(difficulty, discrimination, self.theta)
+        #fisher_info = batch_fisher_information(difficulty, discrimination, self.theta)
 
         # Calculate the reward
         # reward = (
         #     0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
         # )
-        reward = 100 * (fisher_info / response_time)
+        with torch.no_grad():
+            curr_data = self.dataset[self.dataset["student_id"] == self.sid]
+            curr_data = curr_data[["discrimination", "difficulty", "response", "response_time"]]
+            curr_data = curr_data.to_numpy()
+            curr_data[list(self.answered)]
+            curr_state = np.ones_like(curr_data) * -1
+            curr_state[list(self.answered)] = curr_data[list(self.answered)]
+            curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
+            curr_state = torch.tensor(curr_state).float().to("cuda")
+            estimated_ability_level = self.reg_model(curr_state)
+            #print(estimated_ability_level.shape)
+            self.theta = estimated_ability_level[0].item()
+            reward = -torch.nn.functional.mse_loss(estimated_ability_level[0], torch.tensor([self.true_theta]).float().to("cuda")).item()
+            #reward = 100 * (fisher_info / response_time)
 
         return self._get_obs(), reward, False, False, self._get_info()
 
@@ -283,7 +300,8 @@ if __name__ == "__main__":
     for x in range(n):  # n students
         observation, info = env.reset(seed=42 + x)  # info gathered each reset
         # print(observation)
-        theta = observation["theta"][0]
+        #theta = observation["theta"][0]
+
         fisher_inf = np.zeros(n_items)
         episode_over = False
         G = 0

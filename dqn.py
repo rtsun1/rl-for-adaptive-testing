@@ -136,13 +136,21 @@ class QNetwork(nn.Module):
 
         # print("DEBUG single_observation_space length: ", len(env.single_observation_space))
         # print("DEBUG action_space length: ", env.action_space.n)
+        input_size = np.array(env.single_observation_space.shape).prod()
+        output_size = env.single_action_space.n
 
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+            nn.Linear(input_size, input_size * 6),
             nn.ReLU(),
-            nn.Linear(120, 240),
+            nn.Linear(input_size * 6, input_size * 4),
             nn.ReLU(),
-            nn.Linear(240, env.single_action_space.n),
+            nn.Linear(input_size * 4, input_size * 2),
+            nn.ReLU(),
+            nn.Linear(input_size * 2, input_size * 1),
+            nn.ReLU(),
+            nn.Linear(input_size * 1, input_size // 2),
+            nn.ReLU(),
+            nn.Linear(input_size // 2, output_size),
         )
 
     def forward(self, x):
@@ -366,7 +374,7 @@ if __name__ == "__main__":
                     )
 
         # PERIODICALLY EVAL
-        if global_step % args.eval_frequency == 0:
+        if (global_step+1) % args.eval_frequency == 0:
             make_env_args = {
             "env_id": args.env_id,
             "seed": args.seed,  # for random sampling actions

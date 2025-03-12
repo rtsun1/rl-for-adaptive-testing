@@ -22,45 +22,45 @@ def evaluate(
     if model == None:
         model = Model(envs).to(device)
         model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
-
-    obs, _ = envs.reset()
-    episodic_returns = []
-    thetas = []
-    true_thetas = []
-    with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=False) as pbar:
-        while len(episodic_returns) < eval_episodes:
-            if random.random() < epsilon:
-                actions = np.array(
-                    [envs.single_action_space.sample() for _ in range(envs.num_envs)]
-                )
-            else:
-                q_values = model(torch.Tensor(obs).to(device))
-                actions = (
-                    torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
-                )
-            next_obs, reward, terminations, truncations, infos = envs.step(actions)
-
-
-            done_mask = np.logical_or(terminations, truncations)
-            # print(envs)
-            # print(infos)
-            # print(infos["student_id"][0], terminations[0], actions[0])
-
-            if done_mask.any():
-                thetas.append(infos["theta"][done_mask].squeeze())
-                true_thetas.append(infos["true_theta"][done_mask].squeeze())
-
-                returns = infos["episode"]["r"][done_mask]
-                for i in range(returns.shape[0]):
-                    tqdm.write(
-                        f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
+    #model.eval()
+    with torch.no_grad():
+        obs, _ = envs.reset()
+        episodic_returns = []
+        thetas = []
+        true_thetas = []
+        with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=False) as pbar:
+            while len(episodic_returns) < eval_episodes:
+                if random.random() < epsilon:
+                    actions = np.array(
+                        [envs.single_action_space.sample() for _ in range(envs.num_envs)]
                     )
-                    episodic_returns += [returns[i]]
-                    pbar.update(1)
-                obs, _ = envs.reset(options={"mask": done_mask})
-            else:
-                obs = next_obs
+                else:
+                    q_values = model(torch.Tensor(obs).to(device))
+                    actions = (
+                        torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
+                    )
+                next_obs, reward, terminations, truncations, infos = envs.step(actions)
+
+
+                done_mask = np.logical_or(terminations, truncations)
+                # print(envs)
+                # print(infos)
+                # print(infos["student_id"][0], terminations[0], actions[0])
+
+                if done_mask.any():
+                    thetas.append(infos["theta"][done_mask].squeeze())
+                    true_thetas.append(infos["true_theta"][done_mask].squeeze())
+
+                    returns = infos["episode"]["r"][done_mask]
+                    for i in range(returns.shape[0]):
+                        tqdm.write(
+                            f"eval_episode={len(episodic_returns)}, episodic_return={returns[i]}"
+                        )
+                        episodic_returns += [returns[i]]
+                        pbar.update(1)
+                    obs, _ = envs.reset(options={"mask": done_mask})
+                else:
+                    obs = next_obs
 
     # Done eval, go back to train
     model.train()
