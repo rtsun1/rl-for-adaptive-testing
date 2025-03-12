@@ -49,6 +49,8 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
     log_interval: int = 5000
     """the interval between logging phase runtimes"""
+    verbose: bool = True
+    """whether to print logs"""
 
     # Environment specific arguments
     time_limit_s: int = 60 * 15
@@ -206,12 +208,13 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
-def learn(args: Args, evaluator: Evaluator = None):
+def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     """
     The main function to learn the model.
 
     :param args: the arguments to run the experiment
     :param evaluator: the evaluation class to evaluate the model. 
+    :param dict_args: arguments to pass that can be python objects (not just CLI args)
     Outputs whether to this hyperparameter setting is pruned or not.
     """
     if evaluator is None:
@@ -314,7 +317,7 @@ def learn(args: Args, evaluator: Evaluator = None):
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
     step_counter = {"eval_episodes": 0}
-    for global_step in tqdm(range(args.total_timesteps)):
+    for global_step in tqdm(range(args.total_timesteps), disable=not args.verbose):
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(
             args.start_e,
@@ -419,7 +422,8 @@ def learn(args: Args, evaluator: Evaluator = None):
                     )
         # Periodically log time
         if global_step % args.log_interval == 0:  # TODO: remove hardcoded interval
-            tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
+            if args.verbose:
+                tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
             env_times = []
             train_times = []
             forward_times = []
@@ -432,6 +436,7 @@ def learn(args: Args, evaluator: Evaluator = None):
                 envs=eval_envs,
                 eval_episodes=args.eval_episodes,
                 epsilon=args.eval_epsilon,
+                verbose=args.verbose
             )
             for episodic_return in episodic_returns:
                 writer.add_scalar("eval/episodic_return", episodic_return, global_step)
@@ -451,18 +456,20 @@ def learn(args: Args, evaluator: Evaluator = None):
             envs=eval_envs,
             eval_episodes=args.eval_episodes,
             epsilon=args.eval_epsilon,
+            verbose=args.verbose
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
         thetas = np.array(thetas)
         true_thetas = np.array(true_thetas)
-        print("Estimated Thetas:")
-        print(thetas.round(2))
-        print("True Thetas:")
-        print(true_thetas.round(2))
         rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
         writer.add_scalar("eval/RMSE", rmse, global_step)
-        print("RMSE: ", rmse)
+        if args.verbose:
+            print("Estimated Thetas:")
+            print(thetas.round(2))
+            print("True Thetas:")
+            print(true_thetas.round(2))
+            print("RMSE: ", rmse)
 
         os.makedirs(f"runs/{run_name}", exist_ok=True)
         packaged_histories = np.zeros(1, dtype=object)
@@ -475,12 +482,15 @@ def learn(args: Args, evaluator: Evaluator = None):
             args=args,
             histories=packaged_histories,
         )
-        print(f"Results saved in runs/{run_name}/results.npz")
+
+        if args.verbose:
+            print(f"Results saved in runs/{run_name}/results.npz")
         if args.save_model:
             model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
             torch.save(q_network.state_dict(), model_path)
-            print(f"model saved to {model_path}")
-            print("Done!")
+            if args.verbose:
+                print(f"model saved to {model_path}")
+                print("Done!")
 
         #     if args.upload_model:
         #         from cleanrl_utils.huggingface import push_to_hub

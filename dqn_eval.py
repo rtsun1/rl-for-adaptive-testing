@@ -15,6 +15,7 @@ class Evaluator:
             envs: gym.vector.VectorEnv,
             eval_episodes: int,
             epsilon: float = 0.05,
+            verbose: bool = True,
         ):
         num_envs = envs.num_envs
         agent.eval()
@@ -27,7 +28,7 @@ class Evaluator:
         histories = []  # track the actions for each completed episode
         history = [[] for _ in range(num_envs)]  # track the actions for each episode in each env
 
-        with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=True) as pbar:
+        with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=True, disable=not verbose) as pbar:
             while len(episodic_returns) < eval_episodes:
                 actions = agent.get_action(obs, infos, epsilon=epsilon)
                 next_obs, reward, terminations, truncations, infos = envs.step(actions)

@@ -95,9 +95,10 @@ class TrialEvaluator(Evaluator):
             agent,
             envs: gym.vector.VectorEnv,
             eval_episodes: int,
-            epsilon: float = 0.05
+            epsilon: float = 0.05,
+            verbose=True
         ):
-        episodic_returns, thetas, true_thetas, histories, pruned = super().evaluate(agent, envs, eval_episodes, epsilon)
+        episodic_returns, thetas, true_thetas, histories, pruned = super().evaluate(agent, envs, eval_episodes, epsilon, verbose)
         thetas = np.array(thetas)
         true_thetas = np.array(true_thetas)
         self.rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
@@ -123,6 +124,8 @@ def objective(trial: optuna.Trial) -> float:
     args.eval_episodes = N_EVAL_EPISODES
     args.eval_frequency = EVAL_FREQ
     args.seed = np.random.randint(2 ** 32 - 1)
+    args.verbose = False
+    args.track = False
 
     # Create the callback that will periodically evaluate and report the performance.
     eval_callback = TrialEvaluator(trial)
