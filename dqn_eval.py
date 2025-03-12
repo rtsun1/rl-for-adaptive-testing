@@ -19,7 +19,7 @@ def evaluate(
     epsilon: float = 0.05,
 ):
     # 4 envs, M2 chip:
-    # Sync: ~25 ep/s
+    # Sync: ~33 ep/s
     # Async: ~20 ep/s
     envs = gym.vector.SyncVectorEnv(
         [make_env(**make_env_args) for _ in range(num_envs)], 
