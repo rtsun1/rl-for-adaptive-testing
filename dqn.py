@@ -220,7 +220,10 @@ if __name__ == "__main__":
             "fisher_rewards": args.fisher_rewards,
         }  # just need to specify: seed, dataset
     
-    envs = gym.vector.SyncVectorEnv(
+    # 4 envs
+    # Sync: env step time ~= 0.0007 (NOTE: with record actions and using action_history for dqn_eval, was 0.0001 somehow...)
+    # Async: env step time ~= 0.0004
+    envs = gym.vector.AsyncVectorEnv(
         [
             make_env(seed=args.seed + i, dataset=train_data, **main_env_config)
             for i in range(args.num_envs)

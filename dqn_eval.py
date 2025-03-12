@@ -18,6 +18,9 @@ def evaluate(
     device: torch.device = torch.device("cpu"),
     epsilon: float = 0.05,
 ):
+    # 4 envs, M2 chip:
+    # Sync: ~25 ep/s
+    # Async: ~20 ep/s
     envs = gym.vector.SyncVectorEnv(
         [make_env(**make_env_args) for _ in range(num_envs)], 
         autoreset_mode=gym.vector.AutoresetMode.DISABLED,
@@ -35,7 +38,7 @@ def evaluate(
     true_thetas = []
     histories = []  # track the actions for each completed episode
     history = [[] for _ in range(num_envs)]  # track the actions for each episode in each env
-    with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=False) as pbar:
+    with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=True) as pbar:
         while len(episodic_returns) < eval_episodes:
             if random.random() < epsilon:
                 actions = np.array(
@@ -60,9 +63,9 @@ def evaluate(
                 for done_env in np.nonzero(done_mask)[0]:
                     thetas.append(infos["theta"][done_env])
                     true_thetas.append(infos["true_theta"][done_env])
-                    tqdm.write(
-                        f"eval_episode={len(episodic_returns)}, episodic_return={infos["episode"]["r"][done_env]}"
-                    )
+                    # tqdm.write(
+                    #     f"eval_episode={len(episodic_returns)}, episodic_return={infos["episode"]["r"][done_env]}"
+                    # )
                     episodic_returns.append(infos["episode"]["r"][done_env])
 
                     histories.append(history[done_env])

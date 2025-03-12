@@ -21,7 +21,7 @@ class FisherInfoRewards(Wrapper):
     def reset(self, seed = None, options = None):
         obs, info = super().reset(seed=seed, options=options)
         self.answered = info["answered"]
-        self.student = info["sid_idx"]
+        self.student = info["sid_idx"] * self.action_space.n
 
         return obs, info
     
@@ -111,7 +111,7 @@ class DetailedAnsweredVectorObservation(Wrapper):
         obs, info = super().reset(seed=seed, options=options)
         self.details_arr.fill(-1)
         self.answered = info["answered"]
-        self.student = info["sid_idx"]
+        self.student = info["sid_idx"] * self.action_space.n
 
         return self._add_answered(obs), info
     

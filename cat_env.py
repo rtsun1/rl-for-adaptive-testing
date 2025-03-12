@@ -119,6 +119,7 @@ class CATEnv(gym.Env):
         """
         Get the true theta for the student
         """
+        # return self.dataset.iloc
         start = self.sid_idx * self.n_items
         stop = (self.sid_idx + 1) * self.n_items
 
