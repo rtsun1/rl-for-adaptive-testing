@@ -119,8 +119,8 @@ def get_mask(
     mask = np.ones(shape, dtype=np.int8)  # int8 b/c gym expects this
     answered = [list(a) for a in answered]
     if mask.ndim > 1:  # case: making a mask of shape (n_env, n_items)
-        for i in range(mask.shape[0]):
-            mask[i, answered[i]] = 0
+        for env in range(mask.shape[0]):  # iterating over envs so shouldn't be too slow
+            mask[env, answered[env]] = 0
     else:  # case: making a mask of shape (n_items)
         mask[answered] = 0
     return mask
@@ -385,10 +385,14 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
 
                 data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (
-                        1 - data.dones.flatten()
-                    )
+                    if args.mask_answered:  # important: max a' Q(S',a') needs to be masked aswell!
+                        next_q_values = target_network(data.next_observations)
+                        mask = get_mask(next_q_values.shape, data.infos["answered"])
+                        next_q_values[np.logical_not(mask)] = -np.inf
+                        target_max, _ = next_q_values.max(dim=1)
+                    else:
+                        target_max, _ = target_network(data.next_observations).max(dim=1)
+                    td_target = data.rewards.flatten() + args.gamma * target_max
                 old_val = q_network(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
