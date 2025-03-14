@@ -1,3 +1,6 @@
+# best params so far:
+# --eval_episodes 100 --no-track --eval-frequency 5000 --total-timesteps 1000000 --num-envs 1 --cuda --exp-name DQN_plus_model_as_reward --learning-rate 0.00000001 --batch-size 2048 --learning-starts 15000 --detailed-answered --exploration-fraction 1 --target-network-frequency 500 --train-frequency 50 --buffer-size 100000
+# --eval_episodes 100 --no-track --eval-frequency 5000 --total-timesteps 1000000 --num-envs 1 --cuda --exp-name DQN_plus_model_as_reward --batch-size 1024 --learning-starts 5000 --detailed-answered --exploration-fraction 1 --target-network-frequency 5000 --train-frequency 10 --buffer-size 100000 --learning-rate 0.001
 import gymnasium as gym
 import numpy as np
 from typing import Optional
@@ -31,7 +34,7 @@ class CATEnv(gym.Env):
         """
         super().__init__()  # may not be necessary, but it's good practice
         self.reg_model = RegressionModel().to("cuda")
-        self.reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt"))
+        self.reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True))
 
         self.dataset = self._sort_dataset(dataset)
         
@@ -54,6 +57,7 @@ class CATEnv(gym.Env):
         self.responses = []  # student responses
         self.discrimination = []  # item discrimination
         self.difficulty = []  # item difficulty
+        self.prev_reward = 0
 
         # Define observation space
         self.observation_space = gym.spaces.Dict(
@@ -62,7 +66,8 @@ class CATEnv(gym.Env):
                     low=theta_lb, high=theta_ub, shape=(1,), dtype=np.float32
                 ),  # shape (1,) [NOT ()] is default for Box space with scalar values
                 "time_left": gym.spaces.Box(
-                    low=0, high=self.time_limit_s, shape=(1,), dtype=np.float32
+                    #low=0, high=self.time_limit_s, shape=(1,), dtype=np.float32
+                    low=0, high=1, shape=(1,), dtype=np.float32
                 ),
             }
         )
@@ -70,7 +75,7 @@ class CATEnv(gym.Env):
         # Define action space
         self.action_space = gym.spaces.Discrete(self.n_items)
 
-        self._action_to_idx = {
+        self.action_to_idx = {
             action: id for action, id in enumerate(items)
         }
 
@@ -101,7 +106,7 @@ class CATEnv(gym.Env):
                 1
             ),  # NOTE: reshaping to (1,) from () to make it consistent with the Box space
             "time_left": np.array(
-                self.time_limit_s - self.time_taken_s, dtype=np.float32
+                (self.time_limit_s - self.time_taken_s)/self.time_limit_s, dtype=np.float32
             ).reshape(1),
         }
 
@@ -117,6 +122,7 @@ class CATEnv(gym.Env):
             "average_times": self.average_times,
             "answered": self.answered,
             "sid_idx": self.sid_idx,
+            "action_to_idx": self.action_to_idx,
         }
     
     def _get_true_theta(self):
@@ -158,6 +164,9 @@ class CATEnv(gym.Env):
         self.sid_idx = self.np_random.integers(self.students.shape[0])
         self.sid = self.students[self.sid_idx]
 
+        self.torch_dataset = self.dataset[self.dataset["student_id"] == self.sid]
+        self.torch_dataset = torch.tensor(self.torch_dataset[["discrimination", "difficulty", "response", "response_time"]].values).float().to("cuda")
+
         # Reset the state
         self.time_taken_s = 0
         self.theta = self.init_theta
@@ -167,6 +176,7 @@ class CATEnv(gym.Env):
         self.responses = []  # student responses
         self.discrimination = []  # item discrimination
         self.difficulty = []  # item difficulty
+        self.prev_reward = 0
 
         # Return the observation and info
         return self._get_obs(), self._get_info()
@@ -202,7 +212,7 @@ class CATEnv(gym.Env):
         start = self.sid_idx * self.n_items
 
         # Otherwise, get the item data
-        item = self._action_to_idx[action]
+        item = self.action_to_idx[action]
         item_data = self.dataset.iloc[start + action]
         if item_data.empty:
             raise ValueError(
@@ -221,7 +231,9 @@ class CATEnv(gym.Env):
         if self.time_taken_s > self.time_limit_s:
             self.time_taken_s = self.time_limit_s  # cap the time to be within the observation space
             # Multiply by 50 to scale the reward relative to -1 reward for answering the same question
-            reward = 50 * - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
+            #reward = - 1 * (self.true_theta - self.theta)**2  # NOTE: reward is the negative of the squared error in the ability estimate
+            #reward = 50 / (0.5 + (self.true_theta - self.theta)**2)
+            reward = (0)
             return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
         
         # Otherwise, update the state
@@ -231,32 +243,35 @@ class CATEnv(gym.Env):
         self.difficulty.append(difficulty)
 
         # Calculate the EAP ability
-        #self.theta, _ = calculate_eap_ability(
-        #    self.responses, self.discrimination, self.difficulty, self.theta_range
-        #)
+        self.theta, _ = calculate_eap_ability(
+            self.responses, self.discrimination, self.difficulty, self.theta_range
+        )
 
         # Calculate the fisher information
         #fisher_info = batch_fisher_information(difficulty, discrimination, self.theta)
 
         # Calculate the reward
-        # reward = (
+        
+        #reward = (
         #     0  # NOTE: Currently, reward 0 for all steps until the episode is terminated
         # )
-        with torch.no_grad():
-            curr_data = self.dataset[self.dataset["student_id"] == self.sid]
-            curr_data = curr_data[["discrimination", "difficulty", "response", "response_time"]]
-            curr_data = curr_data.to_numpy()
-            curr_data[list(self.answered)]
-            curr_state = np.ones_like(curr_data) * -1
-            curr_state[list(self.answered)] = curr_data[list(self.answered)]
-            curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
-            curr_state = torch.tensor(curr_state).float().to("cuda")
-            estimated_ability_level = self.reg_model(curr_state)
-            #print(estimated_ability_level.shape)
-            self.theta = estimated_ability_level[0].item()
-            reward = -torch.nn.functional.mse_loss(estimated_ability_level[0], torch.tensor([self.true_theta]).float().to("cuda")).item()
-            #reward = 100 * (fisher_info / response_time)
+        #"""
+        curr_reward = (self.true_theta - self.theta) ** 2
+        reward = (self.prev_reward - curr_reward)
+        self.prev_reward = curr_reward
 
+        curr_data = self.torch_dataset
+        curr_state = torch.ones_like(curr_data) * -1
+        curr_state[list(self.answered)] = curr_data[list(self.answered)]
+        curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
+        estimated_ability_level = self.reg_model(curr_state)
+        self.theta = estimated_ability_level[0].item()
+        #reward = - (self.true_theta - self.theta) ** 2#-torch.nn.functional.mse_loss(estimated_ability_level[0], torch.tensor([self.true_theta]).float().to("cuda")).item()
+        #reward = 100 * (fisher_info / response_time)"""
+        #reward = (0)
+        #"""
+        
+        
         return self._get_obs(), reward, False, False, self._get_info()
 
     def render(self):

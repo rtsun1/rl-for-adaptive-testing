@@ -38,6 +38,7 @@ def evaluate(
     true_thetas = []
     histories = []  # track the actions for each completed episode
     history = [[] for _ in range(num_envs)]  # track the actions for each episode in each env
+    epsilon = 0.0
     with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=True) as pbar:
         while len(episodic_returns) < eval_episodes:
             if random.random() < epsilon:
@@ -46,10 +47,16 @@ def evaluate(
                 )
             else:
                 q_values = model(torch.Tensor(obs).to(device))
+                mask_answered = torch.zeros_like(q_values)
+                for env_idx in range(num_envs):
+                    mask_answered[env_idx, list(envs.get_attr("answered")[env_idx])] = -np.inf
+                q_values += mask_answered
                 actions = (
                     torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
                 )
             next_obs, reward, terminations, truncations, infos = envs.step(actions)
+            already_asked = infos["already_asked"].any()
+
 
             # record action
             for env_idx in range(num_envs):
@@ -78,11 +85,11 @@ def evaluate(
                 obs, _ = envs.reset(options={"mask": done_mask})
             else:
                 obs = next_obs
+        pbar.set_description(f"MAE: {round(np.mean(np.abs(np.array(thetas) - np.array(true_thetas))), 3)}, RMSE: {round(np.sqrt(np.mean((np.array(thetas) - np.array(true_thetas)) ** 2)), 3)}")
 
     envs.close()
     # Done eval, go back to train
     model.train()
-
     return episodic_returns, thetas, true_thetas, histories
 
 

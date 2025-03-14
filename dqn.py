@@ -147,22 +147,36 @@ class QNetwork(nn.Module):
 
         # print("DEBUG single_observation_space length: ", len(env.single_observation_space))
         # print("DEBUG action_space length: ", env.action_space.n)
+        #input_size = np.array(env.single_observation_space.shape).prod()
         input_size = np.array(env.single_observation_space.shape).prod()
         output_size = env.single_action_space.n
 
         self.network = nn.Sequential(
-            nn.Linear(input_size, input_size * 6),
+            nn.Linear(input_size, input_size * 5),
             nn.ReLU(),
-            nn.Linear(input_size * 6, input_size * 4),
+            nn.Linear(input_size * 5, input_size * 5),
             nn.ReLU(),
-            nn.Linear(input_size * 4, input_size * 2),
+            nn.Linear(input_size * 5, input_size // 2),
+            nn.ReLU(),
+            nn.Linear(input_size // 2, input_size // 6),
+            nn.ReLU(),
+            nn.Linear(input_size // 6, output_size * 5),
+            nn.ReLU(),
+            nn.Linear(output_size * 5, output_size),
+        )
+        """
+            nn.Linear(input_size, input_size * 2),
             nn.ReLU(),
             nn.Linear(input_size * 2, input_size * 1),
             nn.ReLU(),
-            nn.Linear(input_size * 1, input_size // 2),
+            nn.Linear(input_size * 1, input_size // 6),
             nn.ReLU(),
-            nn.Linear(input_size // 2, output_size),
-        )
+            nn.Linear(input_size // 6, input_size // 6),
+            nn.ReLU(),
+            nn.Linear(input_size // 6, output_size * 10),
+            nn.ReLU(),
+            nn.Linear(output_size * 10, output_size),
+            #"""
 
     def forward(self, x):
         return self.network(
@@ -217,6 +231,7 @@ if __name__ == "__main__":
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
+    device = torch.device("cuda")
     print("Using Device : ", device)
 
     # env setup
@@ -246,6 +261,7 @@ if __name__ == "__main__":
 
     q_network = QNetwork(envs).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
@@ -267,12 +283,16 @@ if __name__ == "__main__":
     forward_times = []  # track time to forward the model
     train_times = []
     reset_times = []
+    last_n = []
 
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
     step_counter = {"eval_episodes": 0}
-    for global_step in tqdm(range(args.total_timesteps)):
+    avg_loss = 0
+    loss_count = 0
+    steps = tqdm(range(args.total_timesteps))
+    for global_step in steps:
         # ALGO LOGIC: put action logic here
         epsilon = linear_schedule(
             args.start_e,
@@ -307,7 +327,7 @@ if __name__ == "__main__":
                 .numpy()
             )
 
-            forward_times.append(time.time() - start_forward_time)
+            #forward_times.append(time.time() - start_forward_time)
             # print("DEBUG : global step ", global_step, " q-network ", actions)
 
         # print(
@@ -331,7 +351,7 @@ if __name__ == "__main__":
             returns = infos["episode"]["r"][done_mask]
             episode_lengths = infos["episode"]["l"][done_mask]
             for i in range(returns.shape[0]):
-                # tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
+                #tqdm.write(f"global_step={global_step}, episodic_return={returns[i]}")
                 writer.add_scalar("training/episodic_return", returns[i], global_step)
                 writer.add_scalar("training/episodic_length", episode_lengths[i], global_step)
 
@@ -359,16 +379,30 @@ if __name__ == "__main__":
         # ALGO LOGIC: training.
         if global_step > args.learning_starts:
             if global_step % args.train_frequency == 0:
+                #avg_loss = np.inf
+                #last_n = []
+                #while avg_loss > 30:
                 start_train_time = time.time()
 
                 data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
-                    target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (
-                        1 - data.dones.flatten()
-                    )
+                    if args.mask_answered:
+                        next_q_values = target_network(data.next_observations)
+                        mask = get_mask(next_q_values.shape, data.infos["answered"])
+                        next_q_values[np.logical_not(mask)] = -np.inf
+                        target_max, _ = next_q_values.max(dim=1)
+                    else:
+                        target_max, _ = target_network(data.next_observations).max(dim=1)
+                    td_target = data.rewards.flatten() + args.gamma * target_max
                 old_val = q_network(data.observations).gather(1, data.actions).squeeze()
-                loss = F.mse_loss(td_target, old_val)
+                loss = F.mse_loss(old_val, td_target)
+                
+                last_n.append(loss.item())
+                loss_count = len(last_n)
+                if loss_count > 500:
+                    last_n.pop(0)
+                avg_loss = sum(last_n) / loss_count
+                steps.set_description(f"Avg. Loss: {round(avg_loss, 3)}")
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
@@ -386,11 +420,15 @@ if __name__ == "__main__":
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                #if global_step/args.train_frequency % 500 == 0:
+                #    lr_scheduler.step(loss)
 
                 train_times.append(time.time() - start_train_time)
                 
             # update target network
             if global_step % args.target_network_frequency == 0:
+                avg_loss = 0
+                loss_count = 0
                 for target_network_param, q_network_param in zip(
                     target_network.parameters(), q_network.parameters()
                 ):
@@ -399,15 +437,15 @@ if __name__ == "__main__":
                         + (1.0 - args.tau) * target_network_param.data
                     )
         # Periodically log time
-        if global_step % 5000 == 0:  # TODO: remove hardcoded interval
-            tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
-            env_times = []
-            train_times = []
-            forward_times = []
-            reset_times = []
+        #if (global_step+1) % 5000 == 0:  # TODO: remove hardcoded interval
+        #    tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
+        #    env_times = []
+        #    train_times = []
+        #    forward_times = []
+        #    reset_times = []
 
         # PERIODICALLY EVAL
-        if (global_step+1) % args.eval_frequency == 0:
+        if global_step % args.eval_frequency == 0 and global_step > args.train_frequency:
             make_env_args = {
                 "seed": args.seed,  # for random sampling actions
                 "dataset": val_data,
