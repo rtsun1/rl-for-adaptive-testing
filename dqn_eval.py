@@ -6,93 +6,73 @@ import numpy as np
 import torch
 
 from tqdm import tqdm
+from torch import nn
 
-def evaluate(
-    model,
-    model_path: str,
-    make_env: Callable,
-    make_env_args: dict,
-    eval_episodes: int,
-    num_envs: int,
-    Model: torch.nn.Module,
-    device: torch.device = torch.device("cpu"),
-    epsilon: float = 0.05,
-):
-    # 4 envs, M2 chip:
-    # Sync: ~33 ep/s
-    # Async: ~20 ep/s
-    envs = gym.vector.SyncVectorEnv(
-        [make_env(**make_env_args) for _ in range(num_envs)], 
-        autoreset_mode=gym.vector.AutoresetMode.DISABLED,
-        # shared_memory=True,
-        copy=False,
-    )
-    if model == None:
-        model = Model(envs).to(device)
-        model.load_state_dict(torch.load(model_path, map_location=device))
-    model.eval()
+class Evaluator:
+    def evaluate(
+            self,
+            agent,
+            envs: gym.vector.VectorEnv,
+            eval_episodes: int,
+            epsilon: float = 0.05,
+            verbose: bool = True,
+        ):
+        num_envs = envs.num_envs
+        agent.eval()
 
-    obs, _ = envs.reset()
-    episodic_returns = []
-    thetas = []
-    true_thetas = []
-    histories = []  # track the actions for each completed episode
-    history = [[] for _ in range(num_envs)]  # track the actions for each episode in each env
-    with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=True) as pbar:
-        while len(episodic_returns) < eval_episodes:
-            if random.random() < epsilon:
-                actions = np.array(
-                    [envs.single_action_space.sample() for _ in range(envs.num_envs)]
-                )
-            else:
-                q_values = model(torch.Tensor(obs).to(device))
-                actions = (
-                    torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
-                )
-            next_obs, reward, terminations, truncations, infos = envs.step(actions)
+        obs, infos = envs.reset()
 
-            # record action
-            for env_idx in range(num_envs):
-                if not infos["already_asked"][env_idx]:
-                    history[env_idx].append(actions[env_idx])
+        episodic_returns = []
+        thetas = []
+        true_thetas = []
+        histories = []  # track the actions for each completed episode
+        history = [[] for _ in range(num_envs)]  # track the actions for each episode in each env
 
-            done_mask = np.logical_or(terminations, truncations)
+        with tqdm(total=eval_episodes, desc="Evaluating", unit="episode", leave=True, disable=not verbose) as pbar:
+            while len(episodic_returns) < eval_episodes:
+                actions = agent.get_action(obs, infos, epsilon=epsilon)
+                next_obs, reward, terminations, truncations, infos = envs.step(actions)
 
-            if done_mask.any():
-                n_done = done_mask.sum()
-                for done_env in np.nonzero(done_mask)[0]:
-                    thetas.append(infos["theta"][done_env])
-                    true_thetas.append(infos["true_theta"][done_env])
-                    # tqdm.write(
-                    #     f"eval_episode={len(episodic_returns)}, episodic_return={infos["episode"]["r"][done_env]}"
-                    # )
-                    episodic_returns.append(infos["episode"]["r"][done_env])
+                # record action
+                for env_idx in range(num_envs):
+                    if not infos["already_asked"][env_idx]:
+                        history[env_idx].append(actions[env_idx])
 
-                    histories.append(history[done_env])
-                    history[done_env] = []
+                done_mask = np.logical_or(terminations, truncations)
 
-                    if len(episodic_returns) == eval_episodes:
-                        break  # do not add extra returns if 2 epsiodes completed at the same time and needed only 1 more
-                    pbar.update(1)
+                if done_mask.any():
+                    n_done = done_mask.sum()
+                    for done_env in np.nonzero(done_mask)[0]:
+                        thetas.append(infos["theta"][done_env])
+                        true_thetas.append(infos["true_theta"][done_env])
+                        # tqdm.write(
+                        #     f"eval_episode={len(episodic_returns)}, episodic_return={infos["episode"]["r"][done_env]}"
+                        # )
+                        episodic_returns.append(infos["episode"]["r"][done_env])
 
-                obs, _ = envs.reset(options={"mask": done_mask})
-            else:
-                obs = next_obs
+                        histories.append(history[done_env])
+                        history[done_env] = []
 
-    envs.close()
-    # Done eval, go back to train
-    model.train()
+                        if len(episodic_returns) == eval_episodes:
+                            break  # do not add extra returns if 2 epsiodes completed at the same time and needed only 1 more
+                        pbar.update(1)
 
-    return episodic_returns, thetas, true_thetas, histories
+                    obs, _ = envs.reset(options={"mask": done_mask})
+                else:
+                    obs = next_obs
+
+        # Done eval, go back to train
+        agent.train()
+
+        return episodic_returns, thetas, true_thetas, histories, False  # False means this run is never pruned
 
 
 if __name__ == "__main__":
-    from dqn import QNetwork, make_env
+    from dqn import QNetwork, make_env, Agent
     from dataloader import dataset_rl
 
-    model_path = "runs/CAT-v0__dqn__42__1741654768/dqn.cleanrl_model"
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train_data, val_data, test_data = dataset_rl()
+    
     make_env_args = {
         "env_id": "CAT-v0",
         "seed": 42,
@@ -102,16 +82,28 @@ if __name__ == "__main__":
         "detailed_answered": False,  # modify based on model,
         "fisher_rewards": False,  # doesn't matter for evaluation
     }
-    episodic_returns, thetas, true_thetas, histories = evaluate(
-        model_path,
-        make_env,
-        make_env_args,
-        eval_episodes=1000,
-        num_envs=2,
-        Model=QNetwork,
-        device=device,
-        epsilon=1,
+    envs = gym.vector.AsyncVectorEnv(
+        [
+            make_env(**make_env_args)
+            for i in range(4)
+        ],
+        autoreset_mode=gym.vector.AutoresetMode.DISABLED,  # see https://farama.org/Vector-Autoreset-Mode
+        copy=False,
     )
+    model_path = "runs/CAT-v0__dqn_mask_125000_train_steps_100_students__42__1741739511/dqn_mask_125000_train_steps_100_students.cleanrl_model"
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = QNetwork(envs)
+    model.load_state_dict(torch.load(model_path))
+    agent = Agent(model=model, device=device, envs=envs, mask_answered=True)
+
+    e = Evaluator()
+    episodic_returns, thetas, true_thetas, histories = e.evaluate(
+        agent=agent,
+        envs=envs,
+        eval_episodes=1000,
+        epsilon=0.05,
+    )
+    envs.close()
     print(episodic_returns)
 
     thetas = np.array(thetas)
