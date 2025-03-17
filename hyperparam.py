@@ -37,6 +37,8 @@ CUDA = False
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
     gamma = 1.0 - trial.suggest_float("gamma", 0.0001, 0.1, log=True)
+    reward_function = trial.suggest_categorical("reward_function", ["sparse", "dense"])
+    theta_state = trial.suggest_categorical("theta_state", ["true", "irt", "ml"])
     # max_grad_norm = trial.suggest_float("max_grad_norm", 0.3, 5.0, log=True)
     # gae_lambda = 1.0 - trial.suggest_float("gae_lambda", 0.001, 0.2, log=True)
     # n_steps = 2 ** trial.suggest_int("exponent_n_steps", 3, 10)

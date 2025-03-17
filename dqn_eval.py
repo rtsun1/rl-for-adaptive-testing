@@ -78,6 +78,7 @@ if __name__ == "__main__":
         "seed": 42,
         "dataset": val_data,
         "time_limit_s": 60 * 15,  # 15 minutes
+        "mask_answered": False,  # modify based on model
         "include_answered": False,  # modify based on model
         "detailed_answered": False,  # modify based on model,
         "fisher_rewards": False,  # doesn't matter for evaluation
@@ -92,7 +93,7 @@ if __name__ == "__main__":
     )
     model_path = "runs/CAT-v0__dqn_mask_125000_train_steps_100_students__42__1741739511/dqn_mask_125000_train_steps_100_students.cleanrl_model"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = QNetwork(envs)
+    model = QNetwork(envs, make_env_args["mask_answered"])
     model.load_state_dict(torch.load(model_path))
     agent = Agent(model=model, device=device, envs=envs, mask_answered=True)
 

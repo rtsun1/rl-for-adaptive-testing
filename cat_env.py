@@ -295,8 +295,9 @@ if __name__ == "__main__":
         # env = DetailedAnsweredVectorObservation(env, dataset=dataset)  # Async: 98.77 it/s
         # env = FisherInfoRewards(env, dataset=dataset)  # Async: 101.76 it/s
         # env = RecordActions(env)  # Async: <5 it/s, Sync: 61.78 it/s
-        env = gym.wrappers.RecordEpisodeStatistics(env)
+        # env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
+        # env = MaskObservation(env)
         return env
     start_make = time.time()
     env = gym.vector.AsyncVectorEnv(
@@ -311,6 +312,7 @@ if __name__ == "__main__":
     # Sync: 57.81 it/s (4 envs M2 Mac)
 
     obs, info = env.reset()
+    # print(env.observation_space["main"].shape)
 
     n = 1000  # number of students
     n_items = dataset["item_id"].unique().shape[0]

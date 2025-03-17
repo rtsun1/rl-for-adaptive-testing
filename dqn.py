@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation
 
 from typing import Callable
 from tqdm import tqdm
@@ -115,7 +115,6 @@ def get_mask(
     Returns:
         numpy.ndarray: An array with 1 for unanswered and 0 for answered items.
     """
-
     mask = np.ones(shape, dtype=np.int8)  # int8 b/c gym expects this
     answered = [list(a) for a in answered]
     if mask.ndim > 1:  # case: making a mask of shape (n_env, n_items)
@@ -126,7 +125,7 @@ def get_mask(
     return mask
 
 
-def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_rewards, time_limit_s=60 * 15):
+def make_env(env_id, seed, dataset, mask_answered, include_answered, detailed_answered, fisher_rewards, time_limit_s=60 * 15):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered and detailed_answered:
@@ -140,6 +139,8 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
         # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead. Also messes up new evaluate implementation.
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
+        if mask_answered:
+            env = MaskObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
         return env
 
@@ -156,16 +157,17 @@ class Agent:
         """Given an observation, choose an action."""
         if random.random() < epsilon:
             if self.mask_answered:
-                mask = get_mask((self.envs.num_envs, self.envs.single_action_space.n), infos["answered"])
+                mask = np.logical_not(obs["answered"]).astype(np.int8)  # masking, gymnasium expects int8
             else:
                 mask = np.ones((self.envs.num_envs, self.envs.single_action_space.n), dtype=np.int8)
             actions = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
         else:
-            q_values = self.model(torch.Tensor(obs).to(self.device))
             if self.mask_answered:
-                mask = get_mask(q_values.shape, infos["answered"])  # masking
-                q_values[np.logical_not(mask)] = -np.inf
-            q_values = self.model(torch.Tensor(obs).to(self.device))
+                q_values = self.model(torch.Tensor(obs["main"]).to(self.device))
+                mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
+                q_values[mask] = -np.inf
+            else:
+                q_values = self.model(torch.Tensor(obs).to(self.device))
             actions = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
 
         return actions
@@ -184,14 +186,18 @@ class Agent:
 # TODO : Change QNetwork according to paper spec
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, mask_answered=False):
         super().__init__()
 
         # print("DEBUG single_observation_space length: ", len(env.single_observation_space))
         # print("DEBUG action_space length: ", env.action_space.n)
 
+        if mask_answered:
+            input_size = np.array(env.single_observation_space["main"].shape).prod()
+        else:
+            input_size = np.array(env.single_observation_space.shape).prod()
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+            nn.Linear(input_size, 120),
             nn.ReLU(),
             nn.Linear(120, 240),
             nn.ReLU(),
@@ -256,6 +262,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     main_env_config = {
             "env_id": args.env_id,
             "time_limit_s": 60.0 * 15,  # 15 minutes
+            "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
             "detailed_answered": args.detailed_answered,
             "fisher_rewards": args.fisher_rewards,
@@ -287,9 +294,9 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         envs.single_action_space, gym.spaces.Discrete
     ), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
+    q_network = QNetwork(envs, args.mask_answered).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
+    target_network = QNetwork(envs, args.mask_answered).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     agent = Agent(model=q_network, device=device, envs=envs, mask_answered=args.mask_answered)
@@ -298,14 +305,24 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
     # print("DEBUG env.single_action_space : ", env.single_action_space)
 
-    replay_buffer = ReplayBuffer(
-        args.buffer_size,
-        envs.single_observation_space,
-        envs.single_action_space,
-        device,
-        envs.num_envs,
-        handle_timeout_termination=False,
-    )
+    if args.mask_answered:
+        replay_buffer = DictReplayBuffer(
+            args.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            envs.num_envs,
+            handle_timeout_termination=False,
+        )
+    else:
+        replay_buffer = ReplayBuffer(
+            args.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            envs.num_envs,
+            handle_timeout_termination=False,
+        )
 
     start_time = time.time()
     env_times = []  # track time to step the env
@@ -384,16 +401,23 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 start_train_time = time.time()
 
                 data = replay_buffer.sample(args.batch_size)
+                if args.mask_answered:
+                    observation = data.observations["main"]
+                    next_observation = data.next_observations["main"]
+                else:
+                    observation = data.observations
+                    next_observation = data.next_observations
                 with torch.no_grad():
                     if args.mask_answered:  # important: max a' Q(S',a') needs to be masked aswell!
-                        next_q_values = target_network(data.next_observations)
-                        mask = get_mask(next_q_values.shape, data.infos["answered"])
-                        next_q_values[np.logical_not(mask)] = -np.inf
+                        next_q_values = target_network(next_observation)
+                        mask = data.next_observations["answered"].bool()  # torch tensor expects bool
+                        next_q_values[mask] = -np.inf
+
                         target_max, _ = next_q_values.max(dim=1)
                     else:
-                        target_max, _ = target_network(data.next_observations).max(dim=1)
+                        target_max, _ = target_network(next_observation).max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max
-                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
+                old_val = q_network(observation).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
