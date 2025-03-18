@@ -43,6 +43,7 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
     # epsilon_decay_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
     # learning_rate_scheduler = trial.suggest_categorical("learning_rate_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealingWarmRestarts", "LinearWarmup"])
+    # TODO: proper normalization of reward and obs
 
     gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
     learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
@@ -56,9 +57,9 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
 
     # === DQN hyperparameters: ===
     num_envs = 1
-    buffer_size: int = trial.suggest_int("buffer_size", 5000, 100_000, step=5000)
+    buffer_size: int = trial.suggest_int("buffer_size", 5000, 500_000, log=True)
     tau = 1.0
-    target_network_frequency = trial.suggest_int("target_network_frequency", 2000, 20_000, log=True)
+    target_network_frequency = trial.suggest_int("target_network_frequency", 5000, 50_000, log=True)
     batch_size = trial.suggest_int("batch_size", 8, 2048, log=True)
     start_e = 1
     end_e = trial.suggest_float("end_e", 0.01, 0.1, log=True)
