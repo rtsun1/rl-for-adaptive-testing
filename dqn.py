@@ -147,30 +147,28 @@ def make_env(env_id, seed, dataset, mask_answered, include_answered, detailed_an
     return thunk
 
 class Agent:
-    def __init__(self, model: nn.Module, device, envs: gym.vector.VectorEnv, mask_answered=False):
+    def __init__(self, model: nn.Module, target: nn.Module, device, envs: gym.vector.VectorEnv):
         self.model = model
+        self.target = target
         self.device = device
         self.envs = envs
-        self.mask_answered = mask_answered
 
     def get_action(self, obs, infos, epsilon=0.05):
         """Given an observation, choose an action."""
         if random.random() < epsilon:
-            if self.mask_answered:
-                mask = np.logical_not(obs["answered"]).astype(np.int8)  # masking, gymnasium expects int8
-            else:
-                mask = np.ones((self.envs.num_envs, self.envs.single_action_space.n), dtype=np.int8)
-            actions = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+            mask = np.ones((self.envs.num_envs, self.envs.single_action_space.n), dtype=np.int8)
+            action = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
         else:
-            if self.mask_answered:
-                q_values = self.model(torch.Tensor(obs["main"]).to(self.device))
-                mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
-                q_values[mask] = -np.inf
-            else:
-                q_values = self.model(torch.Tensor(obs).to(self.device))
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
+            q_values = self.model(torch.Tensor(obs).to(self.device))
+            action = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
 
-        return actions
+        return action
+    
+    def get_target_values(self, obs):
+        return self.target(obs)
+    
+    def get_values(self, obs):
+        return self.model(obs)
 
     # def update(self, obs, actions, rewards, next_obs, dones):
     #     """Update the model with the observed results."""
@@ -182,6 +180,30 @@ class Agent:
     def eval(self):
         """Set the model to evaluation mode."""
         self.model.eval()
+
+class MaskAgent(Agent):
+    def get_action(self, obs, infos, epsilon=0.05):
+        if random.random() < epsilon:
+            mask = np.logical_not(obs["answered"]).astype(np.int8)  # masking, gymnasium expects int8
+            action = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+        else:
+            q_values = self.model(torch.Tensor(obs["main"]).to(self.device))
+            mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
+            q_values[mask] = -np.inf
+            action = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions 
+
+        return action
+    
+    def get_target_values(self, obs):
+        # important: max a' Q(S',a') needs to be masked aswell!
+        next_q_values = self.target(obs["main"])
+        mask = obs["answered"].bool()  # torch tensor expects bool
+        next_q_values[mask] = -np.inf
+
+        return next_q_values
+    
+    def get_values(self, obs):
+        return self.model(obs["main"])
 
 # TODO : Change QNetwork according to paper spec
 # ALGO LOGIC: initialize agent here:
@@ -299,7 +321,10 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     target_network = QNetwork(envs, args.mask_answered).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    agent = Agent(model=q_network, device=device, envs=envs, mask_answered=args.mask_answered)
+    if args.mask_answered:
+        agent = MaskAgent(model=q_network, target=target_network, device=device, envs=envs)
+    else:
+        agent = Agent(model=q_network, target=target_network, device=device, envs=envs)
 
     # print("DEBUG args.buffer_size : ", args.buffer_size)
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
@@ -401,23 +426,11 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 start_train_time = time.time()
 
                 data = replay_buffer.sample(args.batch_size)
-                if args.mask_answered:
-                    observation = data.observations["main"]
-                    next_observation = data.next_observations["main"]
-                else:
-                    observation = data.observations
-                    next_observation = data.next_observations
                 with torch.no_grad():
-                    if args.mask_answered:  # important: max a' Q(S',a') needs to be masked aswell!
-                        next_q_values = target_network(next_observation)
-                        mask = data.next_observations["answered"].bool()  # torch tensor expects bool
-                        next_q_values[mask] = -np.inf
-
-                        target_max, _ = next_q_values.max(dim=1)
-                    else:
-                        target_max, _ = target_network(next_observation).max(dim=1)
+                    next_q_values = agent.get_target_values(data.next_observations)
+                    target_max, _ = next_q_values.max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max
-                old_val = q_network(observation).gather(1, data.actions).squeeze()
+                old_val = agent.get_values(data.observations).gather(1, data.actions).squeeze()
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
