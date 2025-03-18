@@ -26,7 +26,7 @@ import numpy as np
 N_TRIALS = 100  # max num of trials
 N_STARTUP_TRIALS = 5  # num of random sampling trials before using TPE sampler
 N_EVALUATIONS = 3  # num of evaluations per trial
-N_TIMESTEPS = 50_000  # num of steps per trial
+N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
 N_EVAL_EPISODES = 100  # num of episodes used for evaluating the agent
 
@@ -36,42 +36,61 @@ CUDA = False
 
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
-    gamma = 1.0 - trial.suggest_float("gamma", 0.0001, 0.1, log=True)
-    reward_function = trial.suggest_categorical("reward_function", ["sparse", "dense"])
-    theta_state = trial.suggest_categorical("theta_state", ["true", "irt", "ml"])
-    # max_grad_norm = trial.suggest_float("max_grad_norm", 0.3, 5.0, log=True)
-    # gae_lambda = 1.0 - trial.suggest_float("gae_lambda", 0.001, 0.2, log=True)
-    # n_steps = 2 ** trial.suggest_int("exponent_n_steps", 3, 10)
+    gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
+    # reward_function = trial.suggest_categorical("reward_function", ["sparse", "dense", "fisher"])
+    # theta_state = trial.suggest_categorical("theta_state", ["true", "irt", "ml"])
     learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-    # ent_coef = trial.suggest_float("ent_coef", 0.00000001, 0.1, log=True)
-    # ortho_init = trial.suggest_categorical("ortho_init", [False, True])
+    
     # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
     # activation_fn = trial.suggest_categorical("activation_fn", ["tanh", "relu"])
+    # include_answered: bool = False
+    # detailed_answered: bool = False
+    # target_network_frequency = trial.suggest_int("target_network_frequency", 500, 100_000)
+    mask_answered = True
+    fisher_rewards = True
+    # num_envs = 1
+    buffer_size: int = trial.suggest_int(5000, 100_000)
+    # tau = 1.0
+    target_network_frequency = 10_000
+    batch_size = 2 ** trial.suggest_int("batch_size_power", 7, 10)
+    start_e = 1
+    end_e = 0.05
+    exploration_fraction = 0.5
+    learning_starts = 10000
+    train_frequency = trial.suggest_int(1, 100)
 
     # Display true values.
     trial.set_user_attr("gamma_", gamma)
     # trial.set_user_attr("gae_lambda_", gae_lambda)
     # trial.set_user_attr("n_steps", n_steps)
 
-    # net_arch = [
+    # net = [
     #     {"pi": [64], "vf": [64]} if net_arch == "tiny" else {"pi": [64, 64], "vf": [64, 64]}
     # ]
 
-    # activation_fn = {"tanh": nn.Tanh, "relu": nn.ReLU}[activation_fn]
-
-    return {
-        # "n_steps": n_steps,
+    cli_args = {
         "gamma": gamma,
-        # "gae_lambda": gae_lambda,
-        # "learning_rate": learning_rate,
-        # "ent_coef": ent_coef,
-        # "max_grad_norm": max_grad_norm,
-        # "policy_kwargs": {
-        #     "net_arch": net_arch,
-        #     "activation_fn": activation_fn,
-        #     "ortho_init": ortho_init,
-        # },
+        "learning_rate": learning_rate,
+        # "net_arch": net,
+        # "activation_fn": activation_fn,
+        # "include_answered": include_answered,
+        # "detailed_answered": detailed_answered,
+        "mask_answered": mask_answered,
+        "fisher_rewards": fisher_rewards,
+        # "num_envs": num_envs,
+        "buffer_size": buffer_size,
+        # "tau": tau,
+        "target_network_frequency": target_network_frequency,
+        "batch_size": batch_size,
+        "start_e": start_e,
+        "end_e": end_e,
+        "exploration_fraction": exploration_fraction,
+        "learning_starts": learning_starts,
+        "train_frequency": train_frequency,
+        # "reward_function": reward_function,
     }
+    dict_args = {}
+    return cli_args, dict_args
 
 
 class TrialEvaluator(Evaluator):
@@ -116,7 +135,7 @@ class TrialEvaluator(Evaluator):
 
 def objective(trial: optuna.Trial) -> float:
     # Sample hyperparameters. TODO:
-    kwargs = sample_params(trial)
+    kwargs, dict_args = sample_params(trial)
     # Create the args used to build and train the model.
     args = Args(**kwargs)
     args.cuda = CUDA
@@ -134,7 +153,7 @@ def objective(trial: optuna.Trial) -> float:
 
     nan_encountered = False
     try:
-        learn(args, eval_callback)
+        learn(args, eval_callback, dict_args)
     except AssertionError as e:
         # Sometimes, random hyperparams can generate NaN.
         print(e)
