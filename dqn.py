@@ -277,7 +277,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
+    device = torch.device("mps" if torch.mps.is_available() and args.cuda else device)  # cuda and mps are taken to mean user wants to use the gpu
     print("Using Device : ", device)
 
     # env setup
@@ -479,9 +479,10 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 epsilon=args.eval_epsilon,
                 verbose=args.verbose
             )
-            for episodic_return in episodic_returns:
-                writer.add_scalar("eval/episodic_return", np.mean(episodic_return), global_step)
-                step_counter["eval_episodes"] += 1
+            # for episodic_return in episodic_returns:
+            #     writer.add_scalar("eval/episodic_return", episodic_return, global_step)
+            #     step_counter["eval_episodes"] += 1
+            writer.add_scalar("eval/avg_episodic_return", np.mean(episodic_returns), global_step)
             thetas = np.array(thetas)
             true_thetas = np.array(true_thetas)
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
@@ -499,8 +500,9 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             epsilon=args.eval_epsilon,
             verbose=args.verbose
         )
-        for idx, episodic_return in enumerate(episodic_returns):
-            writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        # for idx, episodic_return in enumerate(episodic_returns):
+        #     writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        writer.add_scalar("eval/avg_episodic_return", np.mean(episodic_returns), global_step)
         thetas = np.array(thetas)
         true_thetas = np.array(true_thetas)
         rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
