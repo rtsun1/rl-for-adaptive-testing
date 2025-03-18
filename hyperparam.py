@@ -36,28 +36,35 @@ CUDA = False
 
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
-    gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
-    # reward_function = trial.suggest_categorical("reward_function", ["sparse", "dense", "fisher"])
+    # === Not implemented hyperparameters: ===
+    # loss_function = trial.suggest_categorical("loss_function", ["l1", "l2", "huber"])
     # theta_state = trial.suggest_categorical("theta_state", ["true", "irt", "ml"])
+    # optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
+    # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
+    # epsilon_decay_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
+    # learning_rate_scheduler = trial.suggest_categorical("learning_rate_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealingWarmRestarts", "LinearWarmup"])
+
+    gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
     learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
     
-    # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
-    # activation_fn = trial.suggest_categorical("activation_fn", ["tanh", "relu"])
+    # === Problem formulation hyperparameters: ===
     # include_answered: bool = False
     # detailed_answered: bool = False
-    # target_network_frequency = trial.suggest_int("target_network_frequency", 500, 100_000)
     mask_answered = True
-    fisher_rewards = True
-    # num_envs = 1
+    reward_function = "fisher"
+    # reward_function = trial.suggest_categorical("reward_function", ["sparse", "fisher"])
+
+    # === DQN hyperparameters: ===
+    num_envs = 1
     buffer_size: int = trial.suggest_int("buffer_size", 5000, 100_000, step=5000)
-    # tau = 1.0
-    target_network_frequency = 10_000
-    batch_size = 2 ** trial.suggest_int("batch_size_power", 5, 10)
+    tau = 1.0
+    target_network_frequency = trial.suggest_int("target_network_frequency", 2000, 20_000, log=True)
+    batch_size = trial.suggest_int("batch_size", 8, 2048, log=True)
     start_e = 1
-    end_e = 0.1
+    end_e = trial.suggest_float("end_e", 0.01, 0.1, log=True)
     exploration_fraction = 0.5
-    learning_starts = 50000
-    train_frequency = trial.suggest_int("train_frequency", 1, 20, 2)
+    learning_starts = 50_000
+    train_frequency = trial.suggest_int("train_frequency", 1, 64, log=True)
 
     # Display true values.
     trial.set_user_attr("gamma_", gamma)
@@ -76,10 +83,10 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
         # "include_answered": include_answered,
         # "detailed_answered": detailed_answered,
         "mask_answered": mask_answered,
-        "fisher_rewards": fisher_rewards,
-        # "num_envs": num_envs,
+        "reward_function": reward_function,
+        "num_envs": num_envs,
         "buffer_size": buffer_size,
-        # "tau": tau,
+        "tau": tau,
         "target_network_frequency": target_network_frequency,
         "batch_size": batch_size,
         "start_e": start_e,
@@ -87,7 +94,6 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
         "exploration_fraction": exploration_fraction,
         "learning_starts": learning_starts,
         "train_frequency": train_frequency,
-        # "reward_function": reward_function,
     }
     dict_args = {}
     return cli_args, dict_args

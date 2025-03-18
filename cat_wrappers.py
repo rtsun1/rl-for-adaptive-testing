@@ -47,7 +47,6 @@ class FisherInfoRewards(Wrapper):
         fisher_info = batch_fisher_information(difficulty, discrimination, theta)
 
         reward = self.reward_scale * fisher_info
-        print(reward)
 
         return obs, reward, terminated, truncated, info
 
