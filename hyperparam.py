@@ -23,15 +23,15 @@ from dqn_eval import Evaluator
 import os
 import numpy as np
 
-N_TRIALS = 100  # max num of trials
+N_TRIALS = 1000  # max num of trials
 N_STARTUP_TRIALS = 5  # num of random sampling trials before using TPE sampler
-N_EVALUATIONS = 3  # num of evaluations per trial
+N_EVALUATIONS = 5  # num of evaluations per trial
 N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
-N_EVAL_EPISODES = 100  # num of episodes used for evaluating the agent
+N_EVAL_EPISODES = 1000  # num of episodes used for evaluating the agent
 
 ENV_ID = "CAT-v0"
-EVAL_EPSILON = 0.05
+EVAL_EPSILON = 0
 CUDA = False
 
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
@@ -49,15 +49,15 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     mask_answered = True
     fisher_rewards = True
     # num_envs = 1
-    buffer_size: int = trial.suggest_int(5000, 100_000)
+    buffer_size: int = trial.suggest_int("buffer_size", 5000, 100_000, step=5000)
     # tau = 1.0
     target_network_frequency = 10_000
-    batch_size = 2 ** trial.suggest_int("batch_size_power", 7, 10)
+    batch_size = 2 ** trial.suggest_int("batch_size_power", 5, 10)
     start_e = 1
-    end_e = 0.05
+    end_e = 0.1
     exploration_fraction = 0.5
-    learning_starts = 10000
-    train_frequency = trial.suggest_int(1, 100)
+    learning_starts = 50000
+    train_frequency = trial.suggest_int("train_frequency", 1, 20, 2)
 
     # Display true values.
     trial.set_user_attr("gamma_", gamma)
@@ -145,8 +145,9 @@ def objective(trial: optuna.Trial) -> float:
     args.eval_episodes = N_EVAL_EPISODES
     args.eval_frequency = EVAL_FREQ
     args.seed = np.random.randint(2 ** 32 - 1)
+    # Turn off logging in a trial
     args.verbose = False
-    args.track = False
+    args.track = True
 
     # Create the callback that will periodically evaluate and report the performance.
     eval_callback = TrialEvaluator(trial)
@@ -179,7 +180,7 @@ if __name__ == "__main__":
 
     study = optuna.create_study(sampler=sampler, pruner=pruner, direction="minimize")
     try:
-        study.optimize(objective, n_trials=N_TRIALS, timeout=600)
+        study.optimize(objective, n_trials=N_TRIALS, timeout=None, show_progress_bar=True)
     except KeyboardInterrupt:
         pass
 

@@ -480,7 +480,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 verbose=args.verbose
             )
             for episodic_return in episodic_returns:
-                writer.add_scalar("eval/episodic_return", episodic_return, global_step)
+                writer.add_scalar("eval/episodic_return", np.mean(episodic_return), global_step)
                 step_counter["eval_episodes"] += 1
             thetas = np.array(thetas)
             true_thetas = np.array(true_thetas)
