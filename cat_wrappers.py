@@ -11,7 +11,7 @@ class FisherInfoRewards(Wrapper):
     Reward wrapper that returns the Fisher Information of the student's ability estimate
     divided by the response time.
     """
-    def __init__(self, env, dataset, reward_scale=100):
+    def __init__(self, env, dataset, reward_scale=8):  # 8 gets rewards around 1
         super().__init__(env)
         self.reward_scale = reward_scale
         self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
@@ -32,19 +32,21 @@ class FisherInfoRewards(Wrapper):
         obs, reward, terminated, truncated, info = self.env.step(action)
         self.answered = info["answered"]
 
+        if terminated or truncated:
+            reward = 0  # no reward for terminal states
         if terminated or truncated or already_answered:
             return obs, reward, terminated, truncated, info
         
         # Extract relevant information
         difficulty = self.dataset.iloc[action]["difficulty"]
         discrimination = self.dataset.iloc[action]["discrimination"]
-        response_time = self.dataset.iloc[self.student + action]["response_time"]
+        # response_time = self.dataset.iloc[self.student + action]["response_time"]
         theta = info["theta"]
 
         # Calculate the fisher information
         fisher_info = batch_fisher_information(difficulty, discrimination, theta)
 
-        reward = self.reward_scale * (fisher_info / response_time)
+        reward = self.reward_scale * fisher_info
 
         return obs, reward, terminated, truncated, info
 

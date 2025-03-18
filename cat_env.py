@@ -92,12 +92,14 @@ class CATEnv(gym.Env):
         """
         Get the current observation
         """
+        time_left = self.time_limit_s - self.time_taken_s
+        normalized_time_left = time_left / self.time_limit_s
         return {
             "theta": np.array(self.theta, dtype=np.float32).reshape(
                 1
             ),  # NOTE: reshaping to (1,) from () to make it consistent with the Box space
             "time_left": np.array(
-                self.time_limit_s - self.time_taken_s, dtype=np.float32
+                normalized_time_left, dtype=np.float32
             ).reshape(1),
         }
 

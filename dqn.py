@@ -65,8 +65,8 @@ class Args:
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
-    fisher_rewards: bool = False
-    """whether to add fisher information as rewards"""
+    reward_function: str = "sparse"
+    """reward function to use. one of ["sparse", "fisher"]"""
     # dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -287,7 +287,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
             "detailed_answered": args.detailed_answered,
-            "fisher_rewards": args.fisher_rewards,
+            "fisher_rewards": args.reward_function == "fisher",
         }  # just need to specify: seed, dataset
     
     # 4 envs
@@ -480,7 +480,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 verbose=args.verbose
             )
             for episodic_return in episodic_returns:
-                writer.add_scalar("eval/episodic_return", episodic_return, global_step)
+                writer.add_scalar("eval/episodic_return", np.mean(episodic_return), global_step)
                 step_counter["eval_episodes"] += 1
             thetas = np.array(thetas)
             true_thetas = np.array(true_thetas)
