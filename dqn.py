@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation, MLThetaObservationAndInfo
 
 from typing import Callable
 from tqdm import tqdm
@@ -67,6 +67,8 @@ class Args:
     """whether to mask actions that are already answered to -np.inf"""
     reward_function: str = "sparse"
     """reward function to use. one of ["sparse", "fisher"]"""
+    theta_state: str = "irt"
+    """the state representation to use. one of ["irt", "ml"]"""
     # dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -92,6 +94,8 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
+    e_scheduler: str = "linear"
+    """the scheduler for epsilon, one of ["linear", "exponential"]"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
@@ -131,7 +135,11 @@ def get_mask(
     return mask
 
 
-def make_env(env_id, seed, dataset, mask_answered, include_answered, detailed_answered, fisher_rewards, time_limit_s=60 * 15):
+def make_env(
+        env_id, seed, dataset, device,
+        mask_answered, include_answered, detailed_answered, fisher_rewards, ml_theta,
+        time_limit_s=60 * 15
+    ):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered and detailed_answered:
@@ -142,6 +150,8 @@ def make_env(env_id, seed, dataset, mask_answered, include_answered, detailed_an
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
             env = FisherInfoRewards(env, dataset=dataset)
+        if ml_theta:
+            env = MLThetaObservationAndInfo(env, dataset=dataset, device=device)
         # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead. Also messes up new evaluate implementation.
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
@@ -241,6 +251,9 @@ class QNetwork(nn.Module):
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
+def exponential_schedule(start_e: float, end_e: float, duration: int, t: int):
+    decay_rate = (end_e / start_e) ** (1 / duration)
+    return max(start_e * (decay_rate ** t), end_e)
 
 def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     """
@@ -291,10 +304,12 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     main_env_config = {
             "env_id": args.env_id,
             "time_limit_s": 60.0 * 15,  # 15 minutes
+            "device": device,
             "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
             "detailed_answered": args.detailed_answered,
             "fisher_rewards": args.reward_function == "fisher",
+            "ml_theta": args.theta_state == "ml",
         }  # just need to specify: seed, dataset
     
     # 4 envs
@@ -337,7 +352,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         case "IncreaseLROnPlateau":
             lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max")
         case "CosineAnnealing":
-            lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_timesteps - args.learning_starts)
+            lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.total_timesteps - args.learning_starts) / args.train_frequency)
         case "Constant":
             lr_scheduler = None
         case _:
@@ -389,13 +404,19 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         case _:
             raise ValueError("Only mse, l1, and huber are supported as loss functions")
 
+    if args.e_scheduler == "linear":
+        e_scheduler = linear_schedule
+    elif args.e_scheduler == "exponential":
+        e_scheduler = exponential_schedule
+    else:
+        raise ValueError("Only linear and exponential are supported as e_schedulers")
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
     step_counter = {"eval_episodes": 0}
     for global_step in tqdm(range(args.total_timesteps), disable=not args.verbose):
         # ALGO LOGIC: put action logic here
-        epsilon = linear_schedule(
+        epsilon = e_scheduler(
             args.start_e,
             args.end_e,
             args.exploration_fraction * args.total_timesteps,
@@ -502,7 +523,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                     )
         # Periodically log time
         if global_step % args.log_interval == 0:  # TODO: remove hardcoded interval
-            if args.verbose:
+            if args.verbose and len(train_times) > 0:
                 tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
             env_times = []
             train_times = []

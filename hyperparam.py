@@ -23,12 +23,12 @@ from dqn_eval import Evaluator
 import os
 import numpy as np
 
-N_TRIALS = 5000  # max num of trials
+N_TRIALS = 10_000  # max num of trials
 N_STARTUP_TRIALS = 100  # num of random sampling trials before using TPE sampler
 N_EVALUATIONS = 6  # num of evaluations per trial
 N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
-N_EVAL_EPISODES = 1000  # num of episodes used for evaluating the agent
+N_EVAL_EPISODES = 500  # num of episodes used for evaluating the agent
 
 ENV_ID = "CAT-v0"
 EVAL_EPSILON = 0
@@ -37,13 +37,7 @@ CUDA = False
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
     # === Not implemented hyperparameters: ===
-    loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
-    # theta_state = trial.suggest_categorical("theta_state", ["true", "irt", "ml"])
-    optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
-    # momentum = trial.suggest_float("momentum", 0.0, 0.99)
     # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
-    # epsilon_decay_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
-    lr_scheduler = trial.suggest_categorical("lr_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"])
 
     gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
     learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
@@ -54,8 +48,13 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     mask_answered = True
     reward_function = "fisher"
     # reward_function = trial.suggest_categorical("reward_function", ["sparse", "fisher"])
+    theta_state = trial.suggest_categorical("theta_state", ["irt", "ml"])  # TODO: try true theta as well 
 
     # === DQN hyperparameters: ===
+    loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
+    optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
+    lr_scheduler = trial.suggest_categorical("lr_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"])
+    e_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
     num_envs = 1
     buffer_size: int = trial.suggest_int("buffer_size", 5000, 500_000, log=True)
     tau = 1.0
@@ -64,7 +63,7 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     start_e = 1
     end_e = trial.suggest_float("end_e", 0.01, 0.1, log=True)
     exploration_fraction = 0.5
-    learning_starts = 50_000
+    learning_starts = trial.suggest_int("learning_starts", 1000, 100_000, log=True)
     train_frequency = trial.suggest_int("train_frequency", 1, 64, log=True)
 
     # Display true values.
@@ -82,9 +81,11 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
         "loss_function": loss_function,
         "optimizer": optimizer,
         "lr_scheduler": lr_scheduler,
+        "e_scheduler": e_scheduler,
         # "net_arch": net,
         # "include_answered": include_answered,
         # "detailed_answered": detailed_answered,
+        "theta_state": theta_state,
         "mask_answered": mask_answered,
         "reward_function": reward_function,
         "num_envs": num_envs,

@@ -76,12 +76,14 @@ if __name__ == "__main__":
     make_env_args = {
         "env_id": "CAT-v0",
         "seed": 42,
+        "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
         "dataset": val_data,
         "time_limit_s": 60 * 15,  # 15 minutes
         "mask_answered": False,  # modify based on model
         "include_answered": False,  # modify based on model
         "detailed_answered": False,  # modify based on model,
         "fisher_rewards": False,  # doesn't matter for evaluation
+        "ml_theta": False,
     }
     envs = gym.vector.AsyncVectorEnv(
         [
