@@ -37,13 +37,13 @@ CUDA = False
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
     # === Not implemented hyperparameters: ===
-    # loss_function = trial.suggest_categorical("loss_function", ["l1", "l2", "huber"])
+    loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
     # theta_state = trial.suggest_categorical("theta_state", ["true", "irt", "ml"])
-    # optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
+    optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
+    # momentum = trial.suggest_float("momentum", 0.0, 0.99)
     # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
     # epsilon_decay_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
-    # learning_rate_scheduler = trial.suggest_categorical("learning_rate_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealingWarmRestarts", "LinearWarmup"])
-    # TODO: proper normalization of reward and obs
+    lr_scheduler = trial.suggest_categorical("lr_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"])
 
     gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
     learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
@@ -79,8 +79,10 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     cli_args = {
         "gamma": gamma,
         "learning_rate": learning_rate,
+        "loss_function": loss_function,
+        "optimizer": optimizer,
+        "lr_scheduler": lr_scheduler,
         # "net_arch": net,
-        # "activation_fn": activation_fn,
         # "include_answered": include_answered,
         # "detailed_answered": detailed_answered,
         "mask_answered": mask_answered,

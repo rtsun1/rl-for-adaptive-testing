@@ -72,6 +72,10 @@ class Args:
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
+    lr_scheduler: str = "Constant"
+    """the learning rate scheduler to use, one of ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"]"""
+    optimizer: str = "adam"
+    """the optimizer to use, one of ["adam", "adamw"]"""
     num_envs: int = 1
     """the number of parallel game environments"""
     buffer_size: int = 10000
@@ -94,6 +98,8 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
+    loss_function: str = "mse"
+    """the loss function to use, one of ["mse", "l1", "huber"]"""
 
     # Evaluation specific arguments
     eval_episodes: int = 100
@@ -318,7 +324,24 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     ), "only discrete action space is supported"
 
     q_network = QNetwork(envs, args.mask_answered).to(device)
-    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    if args.optimizer == "adam":
+        optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    elif args.optimizer == "adamw":
+        optimizer = optim.AdamW(q_network.parameters(), lr=args.learning_rate)
+    else:
+        raise ValueError("Only adam and adamw are supported as optimizers")
+    
+    match args.lr_scheduler:
+        case "ReduceLROnPlateau":
+            lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min")
+        case "IncreaseLROnPlateau":
+            lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max")
+        case "CosineAnnealing":
+            lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=args.total_timesteps - args.learning_starts)
+        case "Constant":
+            lr_scheduler = None
+        case _:
+            raise ValueError("Only ReduceLROnPlateau, IncreaseLROnPlateau, CosineAnnealing, and Constant are supported as lr_schedulers")
     target_network = QNetwork(envs, args.mask_answered).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
@@ -355,6 +378,16 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     forward_times = []  # track time to forward the model
     train_times = []
     reset_times = []
+
+    match args.loss_function:
+        case "mse":
+            loss_fn = F.mse_loss
+        case "l1":
+            loss_fn = F.l1_loss
+        case "huber":
+            loss_fn = F.smooth_l1_loss
+        case _:
+            raise ValueError("Only mse, l1, and huber are supported as loss functions")
 
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
@@ -432,7 +465,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                     target_max, _ = next_q_values.max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max
                 old_val = agent.get_values(data.observations).gather(1, data.actions).squeeze()
-                loss = F.mse_loss(td_target, old_val)
+                loss = loss_fn(td_target, old_val)
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
@@ -450,6 +483,11 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                if lr_scheduler:
+                    if args.lr_scheduler == "ReduceLROnPlateau" or args.lr_scheduler == "IncreaseLROnPlateau":
+                        lr_scheduler.step(metrics=loss)
+                    elif args.lr_scheduler == "CosineAnnealing":
+                        lr_scheduler.step()
 
                 train_times.append(time.time() - start_train_time)
                 
