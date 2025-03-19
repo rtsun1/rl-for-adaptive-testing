@@ -17,11 +17,13 @@ class FisherInfoRewards(Wrapper):
         self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
         self.dataset = dataset
         self.student = None
+        self.theta = None
 
     def reset(self, seed = None, options = None):
         obs, info = super().reset(seed=seed, options=options)
         self.answered = info["answered"]
         self.student = info["sid_idx"] * self.action_space.n
+        self.theta = info["theta"]
 
         return obs, info
     
@@ -41,10 +43,10 @@ class FisherInfoRewards(Wrapper):
         difficulty = self.dataset.iloc[action]["difficulty"]
         discrimination = self.dataset.iloc[action]["discrimination"]
         # response_time = self.dataset.iloc[self.student + action]["response_time"]
-        theta = info["theta"]
 
         # Calculate the fisher information
-        fisher_info = batch_fisher_information(difficulty, discrimination, theta)
+        fisher_info = batch_fisher_information(difficulty, discrimination, self.theta)
+        self.theta = info["theta"]
 
         reward = self.reward_scale * fisher_info
 

@@ -1,0 +1,153 @@
+[I 2025-03-18 18:41:44,990] A new study created in RDB with name: dqn_masking
+  0%|          | 0/1000 [00:00<?, ?it/s]wandb: Using wandb-core as the SDK backend.  Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: tonyinbio (b401p7) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.19.8
+wandb: Run data is saved locally in /home/sun/code/c469/rl-for-adaptive-testing/wandb/run-20250318_184146-s84uaru2
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run CAT-v0__dqn__4009810959__1742344905
+wandb: ⭐️ View project at https://wandb.ai/tonyinbio/CAT_dqn
+wandb: 🚀 View run at https://wandb.ai/tonyinbio/CAT_dqn/runs/s84uaru2
+Using Device :  cpu
+wandb: uploading history steps 156138-156141, summary
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:               charts/SPS ██▇▇▇▆▇▆▅▅▅▃▃▃▃▄▃▃▃▃▃▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁
+wandb:                eval/RMSE █▁▁▁▂▁▁▂
+wandb: eval/avg_episodic_return ▁███████
+wandb:              global_step ▁▁▁▁▂▂▂▂▂▂▃▃▃▃▃▃▃▄▄▄▄▄▄▄▅▅▅▅▅▅▆▆▆▇▇▇▇███
+wandb:          losses/q_values ▁▂▂▂▂▃▄▅▅▅▇▇▇███████████████████████████
+wandb:           losses/td_loss ▄█▂▃▃▂▃▃▃▃▃▃▃▄▃▃▂▂▃▂▂▂▂▂▂▂▂▂▁▁▂▁▂▁▂▂▂▁▂▂
+wandb: training/episodic_length ▅▆▄▅▂▆▄▆▄▄▃▄▃▂▇▅▄▃▄▁▅▄▂▇▄▂▆▅▃█▅▄▂▂▅▂▄▅▁▆
+wandb: training/episodic_return ▃▃▄▃▁▄▄▆▄▃▂▄█▅▄▄█▇▂▄▅▆▆▄▅▆▂▄▃▃▄▄▅▄▆▇▅▄▂▃
+wandb: 
+wandb: Run summary:
+wandb:               charts/SPS 817
+wandb:                eval/RMSE 0.54231
+wandb: eval/avg_episodic_return 35.19103
+wandb:              global_step 999999
+wandb:          losses/q_values 37.07053
+wandb:           losses/td_loss 0.13171
+wandb: training/episodic_length 23
+wandb: training/episodic_return 26.74397
+wandb: 
+wandb: 🚀 View run CAT-v0__dqn__4009810959__1742344905 at: https://wandb.ai/tonyinbio/CAT_dqn/runs/s84uaru2
+wandb: ⭐️ View project at: https://wandb.ai/tonyinbio/CAT_dqn
+wandb: Synced 8 W&B file(s), 0 media file(s), 0 artifact file(s) and 1 other file(s)
+wandb: Find logs at: ./wandb/run-20250318_184146-s84uaru2/logs
+                                          0%|          | 0/1000 [20:56<?, ?it/s]Best trial: 0. Best value: 0.542311:   0%|          | 0/1000 [20:56<?, ?it/s]Best trial: 0. Best value: 0.542311:   0%|          | 1/1000 [20:56<348:48:40, 1256.98s/it]wandb: Tracking run with wandb version 0.19.8
+wandb: Run data is saved locally in /home/sun/code/c469/rl-for-adaptive-testing/wandb/run-20250318_190242-28du27zx
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run CAT-v0__dqn__2170637389__1742346162
+wandb: ⭐️ View project at https://wandb.ai/tonyinbio/CAT_dqn
+wandb: 🚀 View run at https://wandb.ai/tonyinbio/CAT_dqn/runs/28du27zx
+wandb: WARNING When using several event log directories, please call `wandb.tensorboard.patch(root_logdir="...")` before `wandb.init`
+[I 2025-03-18 19:02:41,964] Trial 0 finished with value: 0.542310800178698 and parameters: {'gamma': 0.9169512959391745, 'lr': 0.0007912204044198442, 'buffer_size': 165284, 'target_network_frequency': 11940, 'batch_size': 994, 'end_e': 0.0313953636176722, 'train_frequency': 44}. Best is trial 0 with value: 0.542310800178698.
+Using Device :  cpu
+wandb: uploading history steps 180287-180290, summary
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:               charts/SPS ██▇▇█▇▇▇▄▄▅▅▅▅▅▅▃▃▄▃▃▄▃▂▂▂▂▃▂▂▂▂▂▁▁▁▁▁▁▁
+wandb:                eval/RMSE █▂▂▂▁▂▂▂
+wandb: eval/avg_episodic_return ▁█▇▇▇▇▇▇
+wandb:              global_step ▁▁▁▁▁▁▂▂▂▂▃▃▃▃▃▄▄▄▄▄▄▄▅▅▅▅▅▅▅▅▆▆▆▆▆▇▇▇██
+wandb:          losses/q_values ▁▁▁▂▂▃▃▄▅▄▅▅▅▅▆▆▆▆▆▆▅▆▆▇▅▇▇▆▇▆█▇▇▇▇▆██▇▇
+wandb:           losses/td_loss ▂▂▄▂▆▂▂▆▃▄▂▂▂▂▃▂▂▂▂▂▁▂▁▂▃▂▃▂▁▂▁▂▁▄▄▁▃▂▂█
+wandb: training/episodic_length ▇▂▆▄▅▆▆▆▃▆▄▂▃▁▃▆▃▇▆▆▅▅▅▇▅▅▂▃█▂▃▃▃▁▁▅▄▄▅▁
+wandb: training/episodic_return ▁▂▁▁▂▃▁▄▃▂▂▄▂▇▄▆▂▄▅▆▁▄▄▄█▂▃▅▁▆▂▄▆▅▄▂▃▃▅▅
+wandb: 
+wandb: Run summary:
+wandb:               charts/SPS 865
+wandb:                eval/RMSE 0.56155
+wandb: eval/avg_episodic_return 33.7672
+wandb:              global_step 999999
+wandb:          losses/q_values 62.23474
+wandb:           losses/td_loss 0.32011
+wandb: training/episodic_length 20
+wandb: training/episodic_return 26.19103
+wandb: 
+wandb: 🚀 View run CAT-v0__dqn__2170637389__1742346162 at: https://wandb.ai/tonyinbio/CAT_dqn/runs/28du27zx
+wandb: ⭐️ View project at: https://wandb.ai/tonyinbio/CAT_dqn
+wandb: Synced 8 W&B file(s), 0 media file(s), 0 artifact file(s) and 1 other file(s)
+wandb: Find logs at: ./wandb/run-20250318_190242-28du27zx/logs
+                                                                                           Best trial: 0. Best value: 0.542311:   0%|          | 1/1000 [40:47<348:48:40, 1256.98s/it]Best trial: 0. Best value: 0.542311:   0%|          | 1/1000 [40:47<348:48:40, 1256.98s/it]Best trial: 0. Best value: 0.542311:   0%|          | 2/1000 [40:47<337:35:10, 1217.75s/it]wandb: Tracking run with wandb version 0.19.8
+wandb: Run data is saved locally in /home/sun/code/c469/rl-for-adaptive-testing/wandb/run-20250318_192232-tjeop1yn
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run CAT-v0__dqn__3561196785__1742347352
+wandb: ⭐️ View project at https://wandb.ai/tonyinbio/CAT_dqn
+wandb: 🚀 View run at https://wandb.ai/tonyinbio/CAT_dqn/runs/tjeop1yn
+wandb: WARNING When using several event log directories, please call `wandb.tensorboard.patch(root_logdir="...")` before `wandb.init`
+[I 2025-03-18 19:22:32,246] Trial 1 finished with value: 0.5615517558673017 and parameters: {'gamma': 0.9560061922781894, 'lr': 0.00021264546164158915, 'buffer_size': 36577, 'target_network_frequency': 30932, 'batch_size': 11, 'end_e': 0.05784098283124664, 'train_frequency': 10}. Best is trial 0 with value: 0.542310800178698.
+Using Device :  cpu
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:               charts/SPS █▇▅▅▅▃▃▃▃▂▂▂▂▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb:                eval/RMSE █▁▂▂▂▂▂▂
+wandb: eval/avg_episodic_return ▁███▇█▇▇
+wandb:              global_step ▁▁▁▁▁▂▂▂▂▂▂▂▂▃▃▃▄▄▄▄▄▄▅▅▅▅▆▆▆▆▇▇▇▇▇▇████
+wandb:          losses/q_values ▁▃▃▃▄▅▆▆▆▆▆▇▇▆▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇█▇▇██████
+wandb:           losses/td_loss ▁▁▁▁▂▁█▁▁▁▁▁▁▁▁▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+wandb: training/episodic_length ▆▃▂▃▃▁▂▃▃▂▃▁▅▂▃▂▂▄▄▅▂▆▃▃▂▅▂▅▂▃▂▂▅▅▃▂█▃▃▂
+wandb: training/episodic_return ▁▃▁▄▃▄▂▃▄▄▅▄▁▄▅▂▅▇▃▄▃▅▂▅▄▅█▅▅█▄▃▄▂▂▃▅▆▇▄
+wandb: 
+wandb: Run summary:
+wandb:               charts/SPS 733
+wandb:                eval/RMSE 0.53398
+wandb: eval/avg_episodic_return 35.01687
+wandb:              global_step 999999
+wandb:          losses/q_values 57.8819
+wandb:           losses/td_loss 0.22399
+wandb: training/episodic_length 11
+wandb: training/episodic_return 33.86964
+wandb: 
+wandb: 🚀 View run CAT-v0__dqn__3561196785__1742347352 at: https://wandb.ai/tonyinbio/CAT_dqn/runs/tjeop1yn
+wandb: ⭐️ View project at: https://wandb.ai/tonyinbio/CAT_dqn
+wandb: Synced 8 W&B file(s), 0 media file(s), 0 artifact file(s) and 1 other file(s)
+wandb: Find logs at: ./wandb/run-20250318_192232-tjeop1yn/logs
+                                                                                           Best trial: 0. Best value: 0.542311:   0%|          | 2/1000 [1:04:05<337:35:10, 1217.75s/it]Best trial: 2. Best value: 0.533976:   0%|          | 2/1000 [1:04:05<337:35:10, 1217.75s/it]Best trial: 2. Best value: 0.533976:   0%|          | 3/1000 [1:04:05<360:06:26, 1300.29s/it]wandb: Tracking run with wandb version 0.19.8
+wandb: Run data is saved locally in /home/sun/code/c469/rl-for-adaptive-testing/wandb/run-20250318_194550-t3ha4jnw
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run CAT-v0__dqn__2072576423__1742348750
+wandb: ⭐️ View project at https://wandb.ai/tonyinbio/CAT_dqn
+wandb: 🚀 View run at https://wandb.ai/tonyinbio/CAT_dqn/runs/t3ha4jnw
+wandb: WARNING When using several event log directories, please call `wandb.tensorboard.patch(root_logdir="...")` before `wandb.init`
+[I 2025-03-18 19:45:50,760] Trial 2 finished with value: 0.5339759397265991 and parameters: {'gamma': 0.9486213399320186, 'lr': 0.00013337648393251225, 'buffer_size': 26757, 'target_network_frequency': 11698, 'batch_size': 896, 'end_e': 0.013175184429271946, 'train_frequency': 27}. Best is trial 2 with value: 0.5339759397265991.
+Using Device :  cpu
+wandb: uploading history steps 155068-155071, summary
+wandb:                                                                                
+wandb: 
+wandb: Run history:
+wandb:               charts/SPS ▁▁▅▇▆█▄▄▅▅▅▆▅▄▄▄▄▄▄▄▂▃▃▂▃▂▁▁▂▂▂▂▂▁▁▁▁▁▁▁
+wandb:                eval/RMSE █▁▁▂▂▂▂▂
+wandb: eval/avg_episodic_return ▁███▇▇▇▇
+wandb:              global_step ▁▁▁▁▃▃▃▃▃▃▃▃▃▄▄▄▄▄▄▄▅▅▅▅▅▆▆▆▆▆▇▇▇▇▇▇▇▇██
+wandb:          losses/q_values ▁▂▄▄▄▆▆▆▇▇▇█▇▇▇▇██▇█▇█▇▇▇▇█▇▇▇▇▇▇▇▇▇▇▇▇█
+wandb:           losses/td_loss ▂█▁▁▂▁▂▁▁▂▁▁▂▁▂▂▂▂▂▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▂▁▁▁▁▁
+wandb: training/episodic_length ▆▇▆▇▆▇▃▅▅▅▄█▃▃▄▇▅▂▅▅▂▅▅▂▂▃▁▇▂▃▄▇▂▄▂▅▇▂█▂
+wandb: training/episodic_return ▃▃▃▁▄▂▄▄▄▄▅▇▂▃▂▂▂▇▆▆▄▃▃▄▄▇▆▆▇▆▅▃▂▇▇█▃▆▄▆
+wandb: 
+wandb: Run summary:
+wandb:               charts/SPS 924
+wandb:                eval/RMSE 0.52033
+wandb: eval/avg_episodic_return 34.0257
+wandb:              global_step 999999
+wandb:          losses/q_values 40.97362
+wandb:           losses/td_loss 0.18881
+wandb: training/episodic_length 9
+wandb: training/episodic_return 25.9407
+wandb: 
+wandb: 🚀 View run CAT-v0__dqn__2072576423__1742348750 at: https://wandb.ai/tonyinbio/CAT_dqn/runs/t3ha4jnw
+wandb: ⭐️ View project at: https://wandb.ai/tonyinbio/CAT_dqn
+wandb: Synced 8 W&B file(s), 0 media file(s), 0 artifact file(s) and 1 other file(s)
+wandb: Find logs at: ./wandb/run-20250318_194550-t3ha4jnw/logs
+                                                                                             Best trial: 2. Best value: 0.533976:   0%|          | 3/1000 [1:22:42<360:06:26, 1300.29s/it]Best trial: 3. Best value: 0.520326:   0%|          | 3/1000 [1:22:42<360:06:26, 1300.29s/it]Best trial: 3. Best value: 0.520326:   0%|          | 4/1000 [1:22:42<339:42:37, 1227.87s/it]wandb: Tracking run with wandb version 0.19.8
+wandb: Run data is saved locally in /home/sun/code/c469/rl-for-adaptive-testing/wandb/run-20250318_200427-bpfj4itj
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run CAT-v0__dqn__668513131__1742349867
+wandb: ⭐️ View project at https://wandb.ai/tonyinbio/CAT_dqn
+wandb: 🚀 View run at https://wandb.ai/tonyinbio/CAT_dqn/runs/bpfj4itj
+wandb: WARNING When using several event log directories, please call `wandb.tensorboard.patch(root_logdir="...")` before `wandb.init`
+[I 2025-03-18 20:04:27,610] Trial 3 finished with value: 0.5203256829524185 and parameters: {'gamma': 0.9284607635518959, 'lr': 0.0001144988272890282, 'buffer_size': 36908, 'target_network_frequency': 6973, 'batch_size': 60, 'end_e': 0.02779178716817891, 'train_frequency': 22}. Best is trial 3 with value: 0.5203256829524185.
+Using Device :  cpu

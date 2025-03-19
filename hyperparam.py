@@ -23,8 +23,8 @@ from dqn_eval import Evaluator
 import os
 import numpy as np
 
-N_TRIALS = 1000  # max num of trials
-N_STARTUP_TRIALS = 5  # num of random sampling trials before using TPE sampler
+N_TRIALS = 5000  # max num of trials
+N_STARTUP_TRIALS = 100  # num of random sampling trials before using TPE sampler
 N_EVALUATIONS = 6  # num of evaluations per trial
 N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
@@ -32,7 +32,7 @@ N_EVAL_EPISODES = 1000  # num of episodes used for evaluating the agent
 
 ENV_ID = "CAT-v0"
 EVAL_EPSILON = 0
-CUDA = True
+CUDA = False
 
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
@@ -185,7 +185,13 @@ if __name__ == "__main__":
     # Do not prune before 1/3 of the max budget is used.
     pruner = MedianPruner(n_startup_trials=N_STARTUP_TRIALS, n_min_trials=N_EVALUATIONS // 3)
 
-    study = optuna.create_study(sampler=sampler, pruner=pruner, direction="minimize")
+    # optuna.delete_study(study_name="dqn_masking", storage="sqlite:///studies.db")
+    study = optuna.create_study(
+        study_name="dqn_masking", 
+        storage="sqlite:///studies.db",
+        load_if_exists=True,
+        sampler=sampler, pruner=pruner, direction="minimize"
+    )
     try:
         study.optimize(objective, n_trials=N_TRIALS, timeout=None, show_progress_bar=True)
     except KeyboardInterrupt:
