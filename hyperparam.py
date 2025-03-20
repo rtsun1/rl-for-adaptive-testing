@@ -32,7 +32,7 @@ N_EVAL_EPISODES = 500  # num of episodes used for evaluating the agent
 
 ENV_ID = "CAT-v0"
 EVAL_EPSILON = 0
-CUDA = False
+CUDA = True
 
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""

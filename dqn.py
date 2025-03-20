@@ -39,7 +39,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = "tonyinbio"
+    wandb_entity: str = "b401p7"
     """the entity (team) of wandb's project"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
@@ -315,7 +315,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     # 4 envs
     # Sync: env step time ~= 0.0007 (NOTE: with record actions and using action_history for dqn_eval, was 0.0001 somehow...)
     # Async: env step time ~= 0.0004
-    envs = gym.vector.AsyncVectorEnv(
+    envs = gym.vector.SyncVectorEnv(  # Async breaks ml theta state (using cuda in forked subprocess) in linux
         [
             make_env(seed=args.seed + i, dataset=train_data, **main_env_config)
             for i in range(args.num_envs)
