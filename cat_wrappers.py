@@ -55,6 +55,48 @@ class FisherInfoRewards(Wrapper):
 
         return obs, reward, terminated, truncated, info
 
+class SparseMSERewards(Wrapper):
+    """
+    Reward wrapper that returns the Fisher Information of the student's ability estimate
+    divided by the response time.
+    """
+    def __init__(self, env, dataset, reward_std=0.1182895876004875, reward_mean=0.17804979690015083):  # these are the stats of FI at theta=0 for train set
+        super().__init__(env)
+        self.reward_std = reward_std
+        self.reward_mean = reward_mean
+        self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
+        self.dataset = dataset
+        self.student = None
+        self.theta = None
+        self.MSE_last = None
+
+    def reset(self, seed = None, options = None):
+        obs, info = super().reset(seed=seed, options=options)
+        self.theta = float(info["theta"])  # float to ensure this is not a ref
+        self.MSE_last = 0.0
+
+        return obs, info
+    
+    def step(self, action):
+        # Check if the question has already been answered
+        already_answered = action in self.answered
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        if terminated or truncated or already_answered:
+            reward = 0  # no reward for terminal states
+        if terminated or truncated or already_answered:
+            return obs, reward, terminated, truncated, info
+        
+        # Calculate Squared Error
+        self.theta = float(info["theta"])
+        self.true_theta = float(info["true_theta"])
+        MSE_curr = torch.square(self.theta - self.true_theta)
+
+        reward = self.MSE_last - MSE_curr
+        self.MSE_last = MSE_curr
+
+        return obs, reward, terminated, truncated, info
+
 class MLThetaObservationAndInfo(Wrapper):
     def __init__(self, env, dataset, device="cpu"):
         super().__init__(env)
