@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation, MLThetaObservationAndInfo
 
 from typing import Callable
 from tqdm import tqdm
@@ -39,7 +39,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = "tonyinbio"
+    wandb_entity: str = "b401p7"
     """the entity (team) of wandb's project"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
@@ -65,13 +65,19 @@ class Args:
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
-    fisher_rewards: bool = False
-    """whether to add fisher information as rewards"""
+    reward_function: str = "sparse"
+    """reward function to use. one of ["sparse", "fisher"]"""
+    theta_state: str = "irt"
+    """the state representation to use. one of ["irt", "ml"]"""
     # dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
+    lr_scheduler: str = "Constant"
+    """the learning rate scheduler to use, one of ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"]"""
+    optimizer: str = "adam"
+    """the optimizer to use, one of ["adam", "adamw"]"""
     num_envs: int = 1
     """the number of parallel game environments"""
     buffer_size: int = 10000
@@ -88,12 +94,16 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
+    e_scheduler: str = "linear"
+    """the scheduler for epsilon, one of ["linear", "exponential"]"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
+    loss_function: str = "mse"
+    """the loss function to use, one of ["mse", "l1", "huber"]"""
 
     # Evaluation specific arguments
     eval_episodes: int = 100
@@ -115,7 +125,6 @@ def get_mask(
     Returns:
         numpy.ndarray: An array with 1 for unanswered and 0 for answered items.
     """
-
     mask = np.ones(shape, dtype=np.int8)  # int8 b/c gym expects this
     answered = [list(a) for a in answered]
     if mask.ndim > 1:  # case: making a mask of shape (n_env, n_items)
@@ -126,7 +135,11 @@ def get_mask(
     return mask
 
 
-def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_rewards, time_limit_s=60 * 15):
+def make_env(
+        env_id, seed, dataset, device,
+        mask_answered, include_answered, detailed_answered, fisher_rewards, ml_theta,
+        time_limit_s=60 * 15
+    ):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
         if include_answered and detailed_answered:
@@ -137,38 +150,41 @@ def make_env(env_id, seed, dataset, include_answered, detailed_answered, fisher_
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
             env = FisherInfoRewards(env, dataset=dataset)
+        if ml_theta:
+            env = MLThetaObservationAndInfo(env, dataset=dataset, device=device)
         # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead. Also messes up new evaluate implementation.
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
+        if mask_answered:
+            env = MaskObservation(env)
         env.action_space.seed(seed)  # for random sampling actions
         return env
 
     return thunk
 
 class Agent:
-    def __init__(self, model: nn.Module, device, envs: gym.vector.VectorEnv, mask_answered=False):
+    def __init__(self, model: nn.Module, target: nn.Module, device, envs: gym.vector.VectorEnv):
         self.model = model
+        self.target = target
         self.device = device
         self.envs = envs
-        self.mask_answered = mask_answered
 
     def get_action(self, obs, infos, epsilon=0.05):
         """Given an observation, choose an action."""
         if random.random() < epsilon:
-            if self.mask_answered:
-                mask = get_mask((self.envs.num_envs, self.envs.single_action_space.n), infos["answered"])
-            else:
-                mask = np.ones((self.envs.num_envs, self.envs.single_action_space.n), dtype=np.int8)
-            actions = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+            mask = np.ones((self.envs.num_envs, self.envs.single_action_space.n), dtype=np.int8)
+            action = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
         else:
             q_values = self.model(torch.Tensor(obs).to(self.device))
-            if self.mask_answered:
-                mask = get_mask(q_values.shape, infos["answered"])  # masking
-                q_values[np.logical_not(mask)] = -np.inf
-            q_values = self.model(torch.Tensor(obs).to(self.device))
-            actions = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
+            action = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions
 
-        return actions
+        return action
+    
+    def get_target_values(self, obs):
+        return self.target(obs)
+    
+    def get_values(self, obs):
+        return self.model(obs)
 
     # def update(self, obs, actions, rewards, next_obs, dones):
     #     """Update the model with the observed results."""
@@ -181,17 +197,45 @@ class Agent:
         """Set the model to evaluation mode."""
         self.model.eval()
 
+class MaskAgent(Agent):
+    def get_action(self, obs, infos, epsilon=0.05):
+        if random.random() < epsilon:
+            mask = np.logical_not(obs["answered"]).astype(np.int8)  # masking, gymnasium expects int8
+            action = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+        else:
+            q_values = self.model(torch.Tensor(obs["main"]).to(self.device))
+            mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
+            q_values[mask] = -np.inf
+            action = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions 
+
+        return action
+    
+    def get_target_values(self, obs):
+        # important: max a' Q(S',a') needs to be masked aswell!
+        next_q_values = self.target(obs["main"])
+        mask = obs["answered"].bool()  # torch tensor expects bool
+        next_q_values[mask] = -np.inf
+
+        return next_q_values
+    
+    def get_values(self, obs):
+        return self.model(obs["main"])
+
 # TODO : Change QNetwork according to paper spec
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
-    def __init__(self, env):
+    def __init__(self, env, mask_answered=False):
         super().__init__()
 
         # print("DEBUG single_observation_space length: ", len(env.single_observation_space))
         # print("DEBUG action_space length: ", env.action_space.n)
 
+        if mask_answered:
+            input_size = np.array(env.single_observation_space["main"].shape).prod()
+        else:
+            input_size = np.array(env.single_observation_space.shape).prod()
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+            nn.Linear(input_size, 120),
             nn.ReLU(),
             nn.Linear(120, 240),
             nn.ReLU(),
@@ -207,6 +251,9 @@ class QNetwork(nn.Module):
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
+def exponential_schedule(start_e: float, end_e: float, duration: int, t: int):
+    decay_rate = (end_e / start_e) ** (1 / duration)
+    return max(start_e * (decay_rate ** t), end_e)
 
 def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     """
@@ -224,7 +271,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     if args.track:
         import wandb
 
-        wandb.init(
+        run = wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
             sync_tensorboard=True,
@@ -232,6 +279,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             name=run_name,
             monitor_gym=True,
             save_code=True,
+            reinit=True
         )
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
@@ -249,22 +297,25 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
+    device = torch.device("mps" if torch.mps.is_available() and args.cuda else device)  # cuda and mps are taken to mean user wants to use the gpu
     print("Using Device : ", device)
 
     # env setup
     main_env_config = {
             "env_id": args.env_id,
             "time_limit_s": 60.0 * 15,  # 15 minutes
+            "device": device,
+            "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
             "detailed_answered": args.detailed_answered,
-            "fisher_rewards": args.fisher_rewards,
+            "fisher_rewards": args.reward_function == "fisher",
+            "ml_theta": args.theta_state == "ml",
         }  # just need to specify: seed, dataset
     
     # 4 envs
     # Sync: env step time ~= 0.0007 (NOTE: with record actions and using action_history for dqn_eval, was 0.0001 somehow...)
     # Async: env step time ~= 0.0004
-    envs = gym.vector.AsyncVectorEnv(
+    envs = gym.vector.SyncVectorEnv(  # Async breaks ml theta state (using cuda in forked subprocess) in linux
         [
             make_env(seed=args.seed + i, dataset=train_data, **main_env_config)
             for i in range(args.num_envs)
@@ -287,25 +338,55 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         envs.single_action_space, gym.spaces.Discrete
     ), "only discrete action space is supported"
 
-    q_network = QNetwork(envs).to(device)
-    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(envs).to(device)
+    q_network = QNetwork(envs, args.mask_answered).to(device)
+    if args.optimizer == "adam":
+        optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    elif args.optimizer == "adamw":
+        optimizer = optim.AdamW(q_network.parameters(), lr=args.learning_rate)
+    else:
+        raise ValueError("Only adam and adamw are supported as optimizers")
+    
+    match args.lr_scheduler:
+        case "ReduceLROnPlateau":
+            lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min")
+        case "IncreaseLROnPlateau":
+            lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max")
+        case "CosineAnnealing":
+            lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=(args.total_timesteps - args.learning_starts) / args.train_frequency)
+        case "Constant":
+            lr_scheduler = None
+        case _:
+            raise ValueError("Only ReduceLROnPlateau, IncreaseLROnPlateau, CosineAnnealing, and Constant are supported as lr_schedulers")
+    target_network = QNetwork(envs, args.mask_answered).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    agent = Agent(model=q_network, device=device, envs=envs, mask_answered=args.mask_answered)
+    if args.mask_answered:
+        agent = MaskAgent(model=q_network, target=target_network, device=device, envs=envs)
+    else:
+        agent = Agent(model=q_network, target=target_network, device=device, envs=envs)
 
     # print("DEBUG args.buffer_size : ", args.buffer_size)
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
     # print("DEBUG env.single_action_space : ", env.single_action_space)
 
-    replay_buffer = ReplayBuffer(
-        args.buffer_size,
-        envs.single_observation_space,
-        envs.single_action_space,
-        device,
-        envs.num_envs,
-        handle_timeout_termination=False,
-    )
+    if args.mask_answered:
+        replay_buffer = DictReplayBuffer(
+            args.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            envs.num_envs,
+            handle_timeout_termination=False,
+        )
+    else:
+        replay_buffer = ReplayBuffer(
+            args.buffer_size,
+            envs.single_observation_space,
+            envs.single_action_space,
+            device,
+            envs.num_envs,
+            handle_timeout_termination=False,
+        )
 
     start_time = time.time()
     env_times = []  # track time to step the env
@@ -313,13 +394,29 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     train_times = []
     reset_times = []
 
+    match args.loss_function:
+        case "mse":
+            loss_fn = F.mse_loss
+        case "l1":
+            loss_fn = F.l1_loss
+        case "huber":
+            loss_fn = F.smooth_l1_loss
+        case _:
+            raise ValueError("Only mse, l1, and huber are supported as loss functions")
+
+    if args.e_scheduler == "linear":
+        e_scheduler = linear_schedule
+    elif args.e_scheduler == "exponential":
+        e_scheduler = exponential_schedule
+    else:
+        raise ValueError("Only linear and exponential are supported as e_schedulers")
     # TRY NOT TO MODIFY: start the game
     obs, infos = envs.reset(seed=args.seed)  # TODO : Batched observations
     # flattened_obs = flatten(envs.single_observation_space, obs)  # MODIFICATION : dict
     step_counter = {"eval_episodes": 0}
     for global_step in tqdm(range(args.total_timesteps), disable=not args.verbose):
         # ALGO LOGIC: put action logic here
-        epsilon = linear_schedule(
+        epsilon = e_scheduler(
             args.start_e,
             args.end_e,
             args.exploration_fraction * args.total_timesteps,
@@ -385,16 +482,11 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
 
                 data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
-                    if args.mask_answered:  # important: max a' Q(S',a') needs to be masked aswell!
-                        next_q_values = target_network(data.next_observations)
-                        mask = get_mask(next_q_values.shape, data.infos["answered"])
-                        next_q_values[np.logical_not(mask)] = -np.inf
-                        target_max, _ = next_q_values.max(dim=1)
-                    else:
-                        target_max, _ = target_network(data.next_observations).max(dim=1)
+                    next_q_values = agent.get_target_values(data.next_observations)
+                    target_max, _ = next_q_values.max(dim=1)
                     td_target = data.rewards.flatten() + args.gamma * target_max
-                old_val = q_network(data.observations).gather(1, data.actions).squeeze()
-                loss = F.mse_loss(td_target, old_val)
+                old_val = agent.get_values(data.observations).gather(1, data.actions).squeeze()
+                loss = loss_fn(td_target, old_val)
 
                 if global_step % 100 == 0:
                     writer.add_scalar("losses/td_loss", loss, global_step)
@@ -412,6 +504,11 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                if lr_scheduler:
+                    if args.lr_scheduler == "ReduceLROnPlateau" or args.lr_scheduler == "IncreaseLROnPlateau":
+                        lr_scheduler.step(metrics=loss)
+                    elif args.lr_scheduler == "CosineAnnealing":
+                        lr_scheduler.step()
 
                 train_times.append(time.time() - start_train_time)
                 
@@ -426,7 +523,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                     )
         # Periodically log time
         if global_step % args.log_interval == 0:  # TODO: remove hardcoded interval
-            if args.verbose:
+            if args.verbose and len(train_times) > 0:
                 tqdm.write(f"env_step_time={np.mean(env_times)}, reset_time={np.mean(reset_times)}, forward_times={np.mean(forward_times)}, train_time={np.mean(train_times)}")
             env_times = []
             train_times = []
@@ -442,9 +539,10 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                 epsilon=args.eval_epsilon,
                 verbose=args.verbose
             )
-            for episodic_return in episodic_returns:
-                writer.add_scalar("eval/episodic_return", episodic_return, global_step)
-                step_counter["eval_episodes"] += 1
+            # for episodic_return in episodic_returns:
+            #     writer.add_scalar("eval/episodic_return", episodic_return, global_step)
+            #     step_counter["eval_episodes"] += 1
+            writer.add_scalar("eval/avg_episodic_return", np.mean(episodic_returns), global_step)
             thetas = np.array(thetas)
             true_thetas = np.array(true_thetas)
             rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
@@ -462,8 +560,9 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             epsilon=args.eval_epsilon,
             verbose=args.verbose
         )
-        for idx, episodic_return in enumerate(episodic_returns):
-            writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        # for idx, episodic_return in enumerate(episodic_returns):
+        #     writer.add_scalar("eval/episodic_return", episodic_return, idx)
+        writer.add_scalar("eval/avg_episodic_return", np.mean(episodic_returns), global_step)
         thetas = np.array(thetas)
         true_thetas = np.array(true_thetas)
         rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
@@ -513,6 +612,9 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         envs.close()
         eval_envs.close()
         writer.close()
+
+        if args.track:
+            run.finish()
 
 if __name__ == "__main__":
     if sb3.__version__ < "2.0":

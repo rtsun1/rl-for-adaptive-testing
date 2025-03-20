@@ -53,9 +53,14 @@ def greedy_fi(args: Args):
     # Greedy FI Algorithm
     obs, info = env.reset()
 
-    n_items = val_data["item_id"].unique().shape[0]
-    diffs = val_data["difficulty"].unique()  # unique preserves order of appearance
-    discs = val_data["discrimination"].unique()
+    questions = val_data.drop_duplicates(subset="item_id", keep="first")
+    # sort questions just like the env does (may be unnecessary bc env sorts in place)
+    questions = questions.sort_values(by="item_id")  # sorting inplace gives a warning
+    questions.reset_index(drop=True, inplace=True)
+
+    n_items = len(questions)
+    diffs = questions["difficulty"].values
+    discs = questions["discrimination"].values
     thetas = np.zeros(n)  # estimated thetas
     true_thetas = np.zeros(n)
 

@@ -23,53 +23,84 @@ from dqn_eval import Evaluator
 import os
 import numpy as np
 
-N_TRIALS = 100  # max num of trials
-N_STARTUP_TRIALS = 5  # num of random sampling trials before using TPE sampler
-N_EVALUATIONS = 3  # num of evaluations per trial
-N_TIMESTEPS = 50_000  # num of steps per trial
+N_TRIALS = 10_000  # max num of trials
+N_STARTUP_TRIALS = 100  # num of random sampling trials before using TPE sampler
+N_EVALUATIONS = 6  # num of evaluations per trial
+N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
-N_EVAL_EPISODES = 100  # num of episodes used for evaluating the agent
+N_EVAL_EPISODES = 500  # num of episodes used for evaluating the agent
 
 ENV_ID = "CAT-v0"
-EVAL_EPSILON = 0.05
-CUDA = False
+EVAL_EPSILON = 0
+CUDA = True
 
 def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     """Sample hyperparameters from defined ranges."""
-    gamma = 1.0 - trial.suggest_float("gamma", 0.0001, 0.1, log=True)
-    # max_grad_norm = trial.suggest_float("max_grad_norm", 0.3, 5.0, log=True)
-    # gae_lambda = 1.0 - trial.suggest_float("gae_lambda", 0.001, 0.2, log=True)
-    # n_steps = 2 ** trial.suggest_int("exponent_n_steps", 3, 10)
-    # learning_rate = trial.suggest_float("lr", 1e-5, 1, log=True)
-    # ent_coef = trial.suggest_float("ent_coef", 0.00000001, 0.1, log=True)
-    # ortho_init = trial.suggest_categorical("ortho_init", [False, True])
+    # === Not implemented hyperparameters: ===
     # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
-    # activation_fn = trial.suggest_categorical("activation_fn", ["tanh", "relu"])
+
+    gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
+    learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
+    
+    # === Problem formulation hyperparameters: ===
+    # include_answered: bool = False
+    # detailed_answered: bool = False
+    mask_answered = True
+    reward_function = "fisher"
+    # reward_function = trial.suggest_categorical("reward_function", ["sparse", "fisher"])
+    theta_state = trial.suggest_categorical("theta_state", ["irt", "ml"])  # TODO: try true theta as well 
+
+    # === DQN hyperparameters: ===
+    loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
+    optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
+    lr_scheduler = trial.suggest_categorical("lr_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"])
+    e_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
+    num_envs = 1
+    buffer_size: int = trial.suggest_int("buffer_size", 5000, 500_000, log=True)
+    tau = 1.0
+    target_network_frequency = trial.suggest_int("target_network_frequency", 5000, 50_000, log=True)
+    batch_size = trial.suggest_int("batch_size", 8, 2048, log=True)
+    start_e = 1
+    end_e = trial.suggest_float("end_e", 0.01, 0.1, log=True)
+    exploration_fraction = 0.5
+    learning_starts = trial.suggest_int("learning_starts", 1000, 100_000, log=True)
+    train_frequency = trial.suggest_int("train_frequency", 1, 64, log=True)
 
     # Display true values.
     trial.set_user_attr("gamma_", gamma)
     # trial.set_user_attr("gae_lambda_", gae_lambda)
     # trial.set_user_attr("n_steps", n_steps)
 
-    # net_arch = [
+    # net = [
     #     {"pi": [64], "vf": [64]} if net_arch == "tiny" else {"pi": [64, 64], "vf": [64, 64]}
     # ]
 
-    # activation_fn = {"tanh": nn.Tanh, "relu": nn.ReLU}[activation_fn]
-
-    return {
-        # "n_steps": n_steps,
+    cli_args = {
         "gamma": gamma,
-        # "gae_lambda": gae_lambda,
-        # "learning_rate": learning_rate,
-        # "ent_coef": ent_coef,
-        # "max_grad_norm": max_grad_norm,
-        # "policy_kwargs": {
-        #     "net_arch": net_arch,
-        #     "activation_fn": activation_fn,
-        #     "ortho_init": ortho_init,
-        # },
+        "learning_rate": learning_rate,
+        "loss_function": loss_function,
+        "optimizer": optimizer,
+        "lr_scheduler": lr_scheduler,
+        "e_scheduler": e_scheduler,
+        # "net_arch": net,
+        # "include_answered": include_answered,
+        # "detailed_answered": detailed_answered,
+        "theta_state": theta_state,
+        "mask_answered": mask_answered,
+        "reward_function": reward_function,
+        "num_envs": num_envs,
+        "buffer_size": buffer_size,
+        "tau": tau,
+        "target_network_frequency": target_network_frequency,
+        "batch_size": batch_size,
+        "start_e": start_e,
+        "end_e": end_e,
+        "exploration_fraction": exploration_fraction,
+        "learning_starts": learning_starts,
+        "train_frequency": train_frequency,
     }
+    dict_args = {}
+    return cli_args, dict_args
 
 
 class TrialEvaluator(Evaluator):
@@ -114,7 +145,7 @@ class TrialEvaluator(Evaluator):
 
 def objective(trial: optuna.Trial) -> float:
     # Sample hyperparameters. TODO:
-    kwargs = sample_params(trial)
+    kwargs, dict_args = sample_params(trial)
     # Create the args used to build and train the model.
     args = Args(**kwargs)
     args.cuda = CUDA
@@ -124,15 +155,16 @@ def objective(trial: optuna.Trial) -> float:
     args.eval_episodes = N_EVAL_EPISODES
     args.eval_frequency = EVAL_FREQ
     args.seed = np.random.randint(2 ** 32 - 1)
+    # Turn off logging in a trial
     args.verbose = False
-    args.track = False
+    args.track = True
 
     # Create the callback that will periodically evaluate and report the performance.
     eval_callback = TrialEvaluator(trial)
 
     nan_encountered = False
     try:
-        learn(args, eval_callback)
+        learn(args, eval_callback, dict_args)
     except AssertionError as e:
         # Sometimes, random hyperparams can generate NaN.
         print(e)
@@ -156,9 +188,15 @@ if __name__ == "__main__":
     # Do not prune before 1/3 of the max budget is used.
     pruner = MedianPruner(n_startup_trials=N_STARTUP_TRIALS, n_min_trials=N_EVALUATIONS // 3)
 
-    study = optuna.create_study(sampler=sampler, pruner=pruner, direction="minimize")
+    # optuna.delete_study(study_name="dqn_masking", storage="sqlite:///studies.db")
+    study = optuna.create_study(
+        study_name="dqn_masking", 
+        storage="sqlite:///studies.db",
+        load_if_exists=True,
+        sampler=sampler, pruner=pruner, direction="minimize"
+    )
     try:
-        study.optimize(objective, n_trials=N_TRIALS, timeout=600)
+        study.optimize(objective, n_trials=N_TRIALS, timeout=None, show_progress_bar=True)
     except KeyboardInterrupt:
         pass
 

@@ -22,3 +22,6 @@ wandb/*
 out/*
 /graphs
 data/test_data.csv
+
+# optuna sqlite
+studies.db
