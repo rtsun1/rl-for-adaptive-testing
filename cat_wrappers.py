@@ -90,7 +90,7 @@ class SparseMSERewards(Wrapper):
         # Calculate Squared Error
         self.theta = float(info["theta"])
         self.true_theta = float(info["true_theta"])
-        MSE_curr = torch.square(self.theta - self.true_theta)
+        MSE_curr = (self.theta - self.true_theta) ** 2
 
         reward = self.MSE_last - MSE_curr
         self.MSE_last = MSE_curr

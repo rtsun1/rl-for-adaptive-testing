@@ -23,6 +23,7 @@ from dqn_eval import Evaluator
 import os
 import numpy as np
 
+EXP_NAME = "dqn_ml_mse_reward"
 N_TRIALS = 10_000  # max num of trials
 N_STARTUP_TRIALS = 100  # num of random sampling trials before using TPE sampler
 #N_EVALUATIONS = 6  # num of evaluations per trial
@@ -40,7 +41,7 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     # === Not implemented hyperparameters: ===
     # net_arch = trial.suggest_categorical("net_arch", ["tiny", "small"])
 
-    exp_name = "dqn_ml_mse_reward"
+    exp_name = EXP_NAME
     gamma = trial.suggest_float("gamma", 0.9, 1, log=True)
     learning_rate = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
     
@@ -164,7 +165,7 @@ def objective(trial: optuna.Trial) -> float:
     args.eval_epsilon = EVAL_EPSILON
     args.eval_episodes = N_EVAL_EPISODES
     args.eval_frequency = EVAL_FREQ
-    args.seed = np.random.randint(2 ** 32 - 1)
+    args.seed = np.random.randint(np.iinfo(np.int32).max)
     # Turn off logging in a trial
     args.verbose = False
     args.track = True
@@ -200,7 +201,7 @@ if __name__ == "__main__":
 
     # optuna.delete_study(study_name="dqn_masking", storage="sqlite:///studies.db")
     study = optuna.create_study(
-        study_name="dqn_ml_mse_reward", 
+        study_name=EXP_NAME, 
         storage="sqlite:///studies.db",
         load_if_exists=True,
         sampler=sampler, pruner=pruner, direction="minimize"
