@@ -22,8 +22,6 @@ NUM_QUESTIONS = 244
 
 _, val_set, test_set = dataset_dt()
 
-print(val_set["item_id"].unique())
-
 
 discrimination_table = val_set.groupby("item_id")["discrimination"].first()
 difficulty_table = val_set.groupby("item_id")["difficulty"].first()
@@ -35,7 +33,7 @@ N = len(response_table)
 
 
 # prepare data for evaluation
-def generate_trajectories(model, stu_ids):
+def generate_trajectories(model, stu_ids, device):
     '''
     Generate and save the trajectory of questions answered by a student, each trajectory has the shape (244, 4) and looks like 
     [ [ "discrimination", "difficulty", "response", "response_time" ],      # q110      note that the response time should be the one in the val set not the avg time saved in the dt
@@ -49,7 +47,9 @@ def generate_trajectories(model, stu_ids):
         - student_id (int)
     '''
 
-    trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1)
+    trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1).to(device)
+    qs_sorted = val_set["item_id"].unique()
+    qs_sorted.sort()
 
     for i in range(N):
         time_remain = MAX_TIME
@@ -69,8 +69,9 @@ def generate_trajectories(model, stu_ids):
             if time_remain < 0 or num_qs >= MAX_QUESTIONS:
                 break
             
-            current_q_info = torch.tensor([current_q_discrimination, current_q_difficulty, current_q_response, current_q_response_time])
-            trajectories[i][] = current_q_info
+            current_q_info = torch.tensor([current_q_discrimination, current_q_difficulty, current_q_response, current_q_response_time]).to(device)
+            idx = np.where(qs_sorted == current_q_id)[0][0]
+            trajectories[i][idx] = current_q_info
 
             if current_q_response == 0:
                 current_q = current_q.left
@@ -88,15 +89,20 @@ if __name__ == "__main__":
 
     # regression model
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    reg_model = RegressionModel().to(torch.device(device))
+    reg_model = RegressionModel().to(device)
     reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True, map_location=device))
     reg_model.eval()
 
     dir_name = "dt_models"
-    models = ["c45", "id3", "cart"]
-    time_aware = [False, True]
     extension = ".pkl"
+
+    # models = ["c45", "id3", "cart"]
+    # time_aware = [False, True]
+    # data_repr = ["mean", "median"]
+    models = ["id3"]
+    time_aware = [False, True]
     data_repr = ["mean", "median"]
+
 
     model_configs = [
         {"model_name": model, 
@@ -119,34 +125,21 @@ if __name__ == "__main__":
             dt_model = pickle.load(f)
 
         # get students' answers
-        trajectories = generate_trajectories(dt_model, stu_ids)
+        trajectories = generate_trajectories(dt_model, stu_ids, device).to(device)     # torch.Size([4271, 244, 4])
 
-
-    
         # ability estimate
-    #     x = torch.tensor(trajectories).to(device)
-    #     N = x.shape[0]
-    #     sum = 0
-    #     with torch.no_grad():
-    #         for i in range(N):      # num of students
-    #             estimated_ability = reg_model(x[i].reshape(1, 244, 4)).item()
-    #             ability = abilities[i]
-    #             sum += (estimated_ability - ability) ** 2
-
-    #     current_RMSE = (sum/N) ** 0.5
-    #     RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = current_RMSE
-    
-
-    # for model, RMSE in RMSE_all.items():
-    #     print(f"{model}:                         {RMSE:.6f}")
+        with torch.no_grad():
+            RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5 
+            RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = RMSE
 
 
+        # batched data -- doesn't work (why?)
 
-'''
-3. how many numbers asked per student
-'''
+        # with torch.no_grad():
+        #     estimated_abilities = reg_model(trajectories).cpu().numpy().reshape((N, ))
+        #     RMSE = (np.sum((estimated_abilities - abilities) ** 2) / N) ** 0.5
+        #     RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = RMSE
 
-'''
-5:48 - 1 done
-
-'''
+    # display
+    for model, RMSE in RMSE_all.items():
+        print(f"{model:<20}: {RMSE:.6f}")

@@ -285,10 +285,46 @@ class DTDiscrete:
 
         start = time.time()
 
+        # left question
+
         # remove students whose answer to the question isn't 0
         response_mask_left = (root_q.current_response_table[root_q.item_id] == 0)
         current_response_table_left = root_q.current_response_table[response_mask_left]
         current_time_table_left = root_q.current_time_table[response_mask_left]
+
+        # remove the selected question
+        if not current_response_table_left.empty:
+            current_response_table_left = current_response_table_left.drop(columns=[root_q.item_id])
+            current_time_table_left = current_time_table_left.drop(columns=[root_q.item_id])
+
+        # remove questions that takes longer than the time remaining
+        if not current_response_table_left.empty:
+            column_repr_left = current_time_table_left.mean(axis=0) if self.mean_or_median == "mean" else current_time_table_left.median(axis=0)
+            columns_to_keep_left = (column_repr_left < root_q.time_remain).index
+
+            current_time_table_left = current_time_table_left.loc[:, columns_to_keep_left]
+            current_response_table_left = current_response_table_left.loc[:, columns_to_keep_left]
+
+        # select question
+        left_q = None
+        if not current_response_table_left.empty:
+            left_item_id, left_time_taken = self.__select_best_q(current_response_table=current_response_table_left,
+                                                                current_time_table=current_time_table_left,)
+        
+            if left_item_id is not None:
+                time_remain_left = root_q.time_remain-left_time_taken
+
+                left_q = QuestionNode(item_id=left_item_id,
+                                    time_taken=left_time_taken,
+                                    time_remain=time_remain_left,
+                                    num_qs_so_far=root_q.num_qs_so_far+1,
+                                    current_response_table=current_response_table_left,
+                                    current_time_table=current_time_table_left,
+                                    left=None,
+                                    right=None)
+        root_q.left = left_q
+
+        # right question
 
         # remove students whose answer to the question isn't 1
         response_mask_right = (root_q.current_response_table[root_q.item_id] == 1)
@@ -296,56 +332,39 @@ class DTDiscrete:
         current_time_table_right = root_q.current_time_table[response_mask_right]
 
         # remove the selected question
-        current_response_table_left = current_response_table_left.drop(columns=[root_q.item_id])
-        current_time_table_left = current_time_table_left.drop(columns=[root_q.item_id])
+        if not current_response_table_right.empty:
+            current_response_table_right = current_response_table_right.drop(columns=[root_q.item_id])
+            current_time_table_right = current_time_table_right.drop(columns=[root_q.item_id])
 
         # remove questions that takes longer than the time remaining
-        column_repr_left = current_time_table_left.mean(axis=0) if self.mean_or_median == "mean" else current_time_table_left.median(axis=0)
-        column_repr_right = current_time_table_right.mean(axis=0) if self.mean_or_median == "mean" else current_time_table_right.median(axis=0)
+        if not current_response_table_right.empty:
+            column_repr_right = current_time_table_right.mean(axis=0) if self.mean_or_median == "mean" else current_time_table_right.median(axis=0)
+            columns_to_keep_right = (column_repr_right < root_q.time_remain).index
 
-        columns_to_keep_left = (column_repr_left < root_q.time_remain).index
-        columns_to_keep_right = (column_repr_right < root_q.time_remain).index
+            current_time_table_right = current_time_table_right.loc[:, columns_to_keep_right]
+            current_response_table_right = current_response_table_right.loc[:, columns_to_keep_right]
 
-        current_time_table_left = current_time_table_left.loc[:, columns_to_keep_left]
-        current_time_table_right = current_time_table_right.loc[:, columns_to_keep_right]
-        current_response_table_left = current_response_table_left.loc[:, columns_to_keep_left]
-        current_response_table_right = current_response_table_right.loc[:, columns_to_keep_right]
-
-        left_item_id, left_time_taken = self.__select_best_q(current_response_table=current_response_table_left,
-                                                             current_time_table=current_time_table_left,)
-        right_item_id, right_time_taken = self.__select_best_q(current_response_table=current_response_table_right,
-                                                               current_time_table=current_time_table_right,)
+        # select question
+        right_q = None
+        if not current_response_table_right.empty:
+            right_item_id, right_time_taken = self.__select_best_q(current_response_table=current_response_table_right,
+                                                                current_time_table=current_time_table_right,)
         
+            if right_item_id is not None:
+                time_remain_right = root_q.time_remain-right_time_taken
+
+                right_q = QuestionNode(item_id=right_item_id,
+                                    time_taken=right_time_taken,
+                                    time_remain=time_remain_right,
+                                    num_qs_so_far=root_q.num_qs_so_far+1,
+                                    current_response_table=current_response_table_right,
+                                    current_time_table=current_time_table_right,
+                                    left=None,
+                                    right=None)
+        root_q.right = right_q
+
         end = time.time()
         print(f"{end-start:.6f}")
-        
-        left_q, right_q = None, None
-        if left_item_id is not None:
-            time_remain_left = root_q.time_remain-left_time_taken
-
-            left_q = QuestionNode(item_id=left_item_id,
-                                   time_taken=left_time_taken,
-                                   time_remain=time_remain_left,
-                                   num_qs_so_far=root_q.num_qs_so_far+1,
-                                   current_response_table=current_response_table_left,
-                                   current_time_table=current_time_table_left,
-                                   left=None,
-                                   right=None)
-            
-        if right_item_id is not None:
-            time_remain_right = root_q.time_remain-right_time_taken
-
-            right_q = QuestionNode(item_id=right_item_id,
-                                   time_taken=right_time_taken,
-                                   time_remain=time_remain_right,
-                                   num_qs_so_far=root_q.num_qs_so_far+1,
-                                   current_response_table=current_response_table_right,
-                                   current_time_table=current_time_table_right,
-                                   left=None,
-                                   right=None)
-
-        root_q.left = left_q
-        root_q.right = right_q
 
         self.__build_dt(root_q.left)
         self.__build_dt(root_q.right)
@@ -378,11 +397,10 @@ class DTDiscrete:
 
 
 
-
 if __name__ == "__main__":
     # train & save model
     dir_name = "dt_models"
-    models = ["cart"]
+    models = ["id3", "c45", "cart"]
     time_aware = [False, True]
     extension = ".pkl"
     data_repr = ["mean", "median"]
