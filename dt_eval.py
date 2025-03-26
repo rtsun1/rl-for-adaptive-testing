@@ -1,6 +1,7 @@
 # look up table for evaluation
 import time
 import os
+import sys
 import pickle
 import numpy as np
 import pandas as pd
@@ -33,7 +34,7 @@ N = len(response_table)
 
 
 # prepare data for evaluation
-def generate_trajectories(model, stu_ids, device):
+def generate_trajectories_fixed_order(model, stu_ids, device):
     '''
     Generate and save the trajectory of questions answered by a student, each trajectory has the shape (244, 4) and looks like 
     [ [ "discrimination", "difficulty", "response", "response_time" ],      # q110      note that the response time should be the one in the val set not the avg time saved in the dt
@@ -82,7 +83,64 @@ def generate_trajectories(model, stu_ids, device):
 
 
 
+def generate_trajectories_dynamic_order(model, stu_ids, device):
+    '''
+    Generate and save the trajectory of questions answered by a student, each trajectory has the shape (244, 4) and looks like 
+    [ [ "discrimination", "difficulty", "response", "response_time" ],      # q110      note that the response time should be the one in the val set not the avg time saved in the dt
+      [ "discrimination", "difficulty", "response", "response_time" ],      # q231
+        ...
+      [ -1, -1, -1, -1]    # invalid q
+    ]
+
+    Parameter:
+        - model 
+        - student_id (int)
+    '''
+
+    trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1).to(device)
+    val_set_ = val_set.reset_index()
+
+    for i in range(N):
+        qs = val_set_.iloc[i*NUM_QUESTIONS : (i+1)*NUM_QUESTIONS]["item_id"].to_numpy()
+
+        time_remain = MAX_TIME
+        num_qs = 0
+        current_q = model.root_q
+
+        while current_q is not None:
+            current_q_id = current_q.item_id
+
+            current_q_discrimination = discrimination_table.loc[current_q_id]
+            current_q_difficulty = difficulty_table.loc[current_q_id]
+            current_q_response = response_table.loc[stu_ids[i], current_q_id]
+            current_q_response_time = time_table.loc[stu_ids[i], current_q_id]
+
+            num_qs += 1
+            time_remain -= current_q_response_time
+            if time_remain < 0 or num_qs >= MAX_QUESTIONS:
+                break
+            
+            current_q_info = torch.tensor([current_q_discrimination, current_q_difficulty, current_q_response, current_q_response_time]).to(device)
+
+            idx = np.where(qs == current_q_id)[0][0]
+            trajectories[i][idx] = current_q_info
+
+            if current_q_response == 0:
+                current_q = current_q.left
+            else:
+                current_q = current_q.right
+    
+    return trajectories
+
+
+
+
 if __name__ == "__main__":
+    assert len(sys.argv) == 2, f"Usage: python3 {sys.argv[0]} <fixed or dynamic>"
+    assert sys.argv[1] in ["fixed", "dynamic"], f"Usage: python3 {sys.argv[0]} <fixed or dynamic>"
+
+    eval_choice = sys.argv[1]
+
     # validation
     stu_ids = val_set["student_id"].unique()
     abilities = val_set["final_score"].unique()
@@ -96,10 +154,7 @@ if __name__ == "__main__":
     dir_name = "dt_models"
     extension = ".pkl"
 
-    # models = ["c45", "id3", "cart"]
-    # time_aware = [False, True]
-    # data_repr = ["mean", "median"]
-    models = ["id3"]
+    models = ["c45", "id3", "cart"]
     time_aware = [False, True]
     data_repr = ["mean", "median"]
 
@@ -120,17 +175,24 @@ if __name__ == "__main__":
     RMSE_all = dict()
     
     for config in model_configs:
+        model_full_name = f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D"
+        print(f"Evaluating {model_full_name} ...")
+
         dt_model = None
         with open(config["file_name"], "rb") as f:
             dt_model = pickle.load(f)
 
         # get students' answers
-        trajectories = generate_trajectories(dt_model, stu_ids, device).to(device)     # torch.Size([4271, 244, 4])
+        trajectories = None
+        if eval_choice == "fixed":
+            trajectories = generate_trajectories_fixed_order(dt_model, stu_ids, device).to(device)     # torch.Size([4271, 244, 4])
+        else:
+            trajectories = generate_trajectories_dynamic_order(dt_model, stu_ids, device).to(device)
 
         # ability estimate
         with torch.no_grad():
             RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5 
-            RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = RMSE
+            RMSE_all[model_full_name] = RMSE
 
 
         # batched data -- doesn't work (why?)
@@ -141,5 +203,6 @@ if __name__ == "__main__":
         #     RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = RMSE
 
     # display
+    print("\n======== RMSE Summary ========")
     for model, RMSE in RMSE_all.items():
         print(f"{model:<20}: {RMSE:.6f}")
