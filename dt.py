@@ -231,9 +231,10 @@ class DTDiscrete:
             - best_q["response_time"] (float): avg response time (can be changed into avg over the students that satisfy current_response_table)
         '''
 
-        qs_available = current_response_table.columns
-        if qs_available.empty:
+        if current_response_table.empty:
             return None, None
+
+        qs_available = current_response_table.columns
 
         best_idx = None
         if self.model == "c45":
