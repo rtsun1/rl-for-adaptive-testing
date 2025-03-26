@@ -1,13 +1,8 @@
-# system
 .DS_Store
-
-# my test
+__pycache__
 .venv
-review
-dqn_paper_code
 
-# outdated
-old
-
-# too large
 data
+dt_models
+
+test.py
