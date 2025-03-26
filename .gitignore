@@ -4,5 +4,21 @@ __pycache__
 
 data
 dt_models
-
 test.py
+
+# cuda yaml
+environment_cuda.yml
+
+# too large
+data
+pisa_data.csv
+
+runs/*
+__pycache__/
+wandb/*
+out/*
+/graphs
+data/test_data.csv
+
+# optuna sqlite
+studies.db
