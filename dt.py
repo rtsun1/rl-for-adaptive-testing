@@ -232,6 +232,9 @@ class DTDiscrete:
         '''
 
         qs_available = current_response_table.columns
+        if qs_available.empty:
+            return None, None
+
         best_idx = None
         if self.model == "c45":
             if not self.time_aware:
