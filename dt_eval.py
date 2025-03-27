@@ -108,6 +108,7 @@ if __name__ == "__main__":
          "file_name": os.path.join(
              dir_name, 
              f"{model}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
+            #  f"{model}_old_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")     
         }
         for model in models
         for t_aware in time_aware
@@ -117,7 +118,7 @@ if __name__ == "__main__":
     RMSE_all = dict()
     
     for config in model_configs:
-        model_full_name = f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D"
+        model_full_name = config["file_name"].split("/")[1].split(".")[0]     # get rid of dir and .pkl
         print(f"Evaluating {model_full_name} ...")
 
         dt_model = None
@@ -129,7 +130,7 @@ if __name__ == "__main__":
 
         # ability estimate
         with torch.no_grad():
-            RMSE = ( sum([ reg_model(  trajectories[i].reshape(1, 244, 4).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5 
+            RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5 
             RMSE_all[model_full_name] = RMSE
 
 
@@ -141,6 +142,7 @@ if __name__ == "__main__":
         #     RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = RMSE
 
     # display
+    RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1]))
     print("\n======== RMSE Summary ========")
-    for model, RMSE in RMSE_all.items():
+    for model, RMSE in RMSE_all_sorted.items():
         print(f"{model:<20}: {RMSE:.6f}")
