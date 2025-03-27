@@ -5,7 +5,6 @@ import pickle
 import numpy as np
 import pandas as pd
 from dataloader import dataset_rl as dataset_dt
-from dt import DTDiscrete, QuestionNode
 
 import torch
 import torch.torch_version
@@ -20,7 +19,7 @@ MAX_TIME = 900
 NUM_QUESTIONS = 244
 
 
-# prepare data for evaluation
+
 def generate_trajectories(model, useful_tables, device):
     '''
     Generate and save the trajectory of questions answered by a student, each trajectory has the shape (244, 4) and looks like 
@@ -72,7 +71,7 @@ def generate_trajectories(model, useful_tables, device):
     return trajectories
 
 
-def eval_dt(model_paths: list, val_or_test: str):
+def eval_dt(path: str, val_or_test: str):
     _, val_set, test_set = dataset_dt()
     assert val_or_test in ["val", "test"]
     data_set = val_set if val_or_test == "val" else test_set
@@ -94,41 +93,23 @@ def eval_dt(model_paths: list, val_or_test: str):
     reg_model.eval()
 
     # evaluate
-    RMSE_all = dict()
     dt_model = None
-    for path in model_paths:
-        try:
-            with open(path, "rb") as f:
-                dt_model = pickle.load(f)
-        except:
-            continue
-        
-        print(f"Evaluating {path.split("/")[1].split(".")[0]} on {val_or_test} ...", end=" ")
-
-        # get students' answers
-        trajectories = generate_trajectories(dt_model, useful_tables, device)
-
-        # ability estimate
-        with torch.no_grad():
-            RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5 
-            RMSE_all[path] = RMSE
-            print(f"{RMSE:.6f}")
-
-
-        # batched data -- doesn't work (why?)
-
-        # with torch.no_grad():
-        #     estimated_abilities = reg_model(trajectories).cpu().numpy().reshape((N, ))
-        #     RMSE = (np.sum((estimated_abilities - abilities) ** 2) / N) ** 0.5
-        #     RMSE_all[ f"{config["model_name"]}_{config["mean_or_median"]}{"_T" if config["time_aware"] else ""}_D" ] = RMSE
-
-    # display
-    RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1]))
-    print("\n======== RMSE Summary ========")
-    for path, RMSE in RMSE_all_sorted.items():
-        print(f"{path.split("/")[1].split(".")[0]:<20}: {RMSE:.6f}")
+    try:
+        with open(path, "rb") as f:
+            dt_model = pickle.load(f)
+    except:
+        return None
     
-    return RMSE_all_sorted
+    print(f"Evaluating {path.split("/")[1].split(".")[0]} on {val_or_test} ...", end=" ")
+
+    # get students' answers
+    trajectories = generate_trajectories(dt_model, useful_tables, device)
+
+    # ability estimate
+    with torch.no_grad():
+        RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5        # batched data doesn't work
+        print(f"{RMSE:.6f}")
+        return RMSE
 
 
 
@@ -144,4 +125,14 @@ if __name__ == "__main__":
         for choice in ["all", "cond"]
     ]
     
-    eval_dt(model_paths, "val")
+    RMSE_all = dict()
+    for path in model_paths: 
+        RMSE_all[path] = eval_dt(path, "val")
+    
+    print()
+    RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda rmse_pair: rmse_pair[1]))
+    print("\n======== RMSE Summary ========")
+    for path, RMSE in RMSE_all_sorted.items():
+        print(f"{path.split("/")[1].split(".")[0]:<20}: {RMSE:.6f}")
+    print()
+    

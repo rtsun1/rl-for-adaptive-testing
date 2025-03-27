@@ -14,7 +14,7 @@ MAX_TIME = 900
 NUM_QUESTIONS = 244
 
 
-def discretize_ability(num_classes: int = 8):
+def discretize_ability_train(num_classes: int = 8):
     '''
     Add a new column which has the discretized ability level
     
@@ -31,25 +31,15 @@ def discretize_ability(num_classes: int = 8):
     labels = range(num_classes)
 
     train_set["ability_class"] = pd.cut(train_set["final_score"], bins=bins, labels=labels)
-    val_set["ability_class"] = pd.cut(val_set["final_score"], bins=bins, labels=labels)
-    test_set["ability_class"] = pd.cut(test_set["final_score"], bins=bins, labels=labels)
 
-    return train_set, val_set, test_set
+    return train_set
 
-
-train_set, val_set, test_set = discretize_ability()
-
-# some useful look-up table
-q_bank = train_set.groupby("item_id")["response_time"].agg(response_time_mean='mean', response_time_median='median').reset_index().set_index("item_id")
-
-stu_answer_table = train_set.pivot_table(index='student_id', columns='item_id', values='response')
-stu_ability_table = train_set[["student_id", "ability_class"]].drop_duplicates().reset_index(drop=True).set_index("student_id")
 
 
 '''
 Reference: https://pypi.org/project/c45-decision-tree/
     - I only borrowed the overall structure, not the implementation
-    - I borrowed the idea of the above look-up tables from my teammate Reuben
+    - I borrowed the idea of the look-up tables from my teammate Reuben
 '''
 class QuestionNode:
     def __init__(self, item_id, time_taken, time_remain, num_qs_so_far, left, right, qs_available, current_set):
@@ -76,13 +66,23 @@ class QuestionNode:
 
 
 
-class DTDiscrete:
-    def __init__(self, model: str, time_aware: bool, mean_or_median: str):
+class DTDiscreteStatic:
+    def __init__(self, model: str, 
+                 time_aware: bool, 
+                 mean_or_median: str,
+                 num_classes: int):
         '''
         self.root_q (QuestionNode)
         self.model (str): model name (e.g. c45, id3, cart)
         self.time_aware (bool): True if you want the criterion (e.g. IG) to be divided by avg time
         '''
+
+        train_set = discretize_ability_train(num_classes)
+
+        # look-up tables
+        self.q_bank = train_set.groupby("item_id")["response_time"].agg(response_time_mean='mean', response_time_median='median').reset_index().set_index("item_id")
+        self.stu_answer_table = train_set.pivot_table(index='student_id', columns='item_id', values='response')
+        self.stu_ability_table = train_set[["student_id", "ability_class"]].drop_duplicates().reset_index(drop=True).set_index("student_id")
 
         assert model in ["c45", "id3", "cart"], "Only c45, id3, cart are available"
         self.model = model
@@ -105,7 +105,7 @@ class DTDiscrete:
             - entropy (float)
         '''
 
-        current_ability_set = stu_ability_table.loc[current_set.index, "ability_class"].values
+        current_ability_set = self.stu_ability_table.loc[current_set.index, "ability_class"].values
         prob = np.bincount(current_ability_set) / len(current_ability_set)
         entropy = -np.sum(prob * np.log2(np.where(prob > 0, prob, 1)))
         
@@ -114,7 +114,7 @@ class DTDiscrete:
 
     def __gini(self, current_response_table):
         
-        current_ability_set = stu_ability_table.loc[current_response_table.index]["ability_class"].values
+        current_ability_set = self.stu_ability_table.loc[current_response_table.index]["ability_class"].values
         prob = np.bincount(current_ability_set) / len(current_ability_set)
         gini = 1 - np.sum(prob ** 2)
 
@@ -215,7 +215,7 @@ class DTDiscrete:
     
 
     def __compute_time(self, item_id):
-        return q_bank.loc[item_id]["response_time_mean"] if self.mean_or_median == "mean" else q_bank.loc[item_id]["response_time_median"]
+        return self.q_bank.loc[item_id]["response_time_mean"] if self.mean_or_median == "mean" else self.q_bank.loc[item_id]["response_time_median"]
 
 
     def __select_best_q(self, qs_available, current_set):
@@ -344,13 +344,13 @@ class DTDiscrete:
         '''
 
         # choose the first question
-        item_id, time_taken = self.__select_best_q(current_set=stu_answer_table,
-                                                   qs_available=q_bank.copy())
+        item_id, time_taken = self.__select_best_q(current_set=self.stu_answer_table,
+                                                   qs_available=self.q_bank.copy())
 
         time_remain_root = MAX_TIME-time_taken
 
         # remove the selected question
-        qs_available = q_bank.drop(index=item_id)
+        qs_available = self.q_bank.drop(index=item_id)
 
         # remove the questions that take longer than the time remaining
         time_choice = "response_time_mean" if self.mean_or_median else "response_time_median"
@@ -360,7 +360,7 @@ class DTDiscrete:
                                    time_taken=time_taken,
                                     time_remain=time_remain_root,
                                     num_qs_so_far=1,
-                                    current_set=stu_answer_table,
+                                    current_set=self.stu_answer_table,
                                     qs_available=qs_available,
                                     left=None,
                                     right=None)
@@ -369,36 +369,4 @@ class DTDiscrete:
 
 
 if __name__ == "__main__":
-    # train & save model
-    dir_name = "dt_models"
-    extension = ".pkl"
-
-    models = ["id3", "c45", "cart"]
-    time_aware = [False, True]
-    data_repr = ["mean", "median"]
-
-    model_configs = [
-        {"model_name": model, 
-         "time_aware": t_aware, 
-         "mean_or_median": mean_or_median,
-         "file_name": os.path.join(
-             dir_name, 
-             f"{model}_old_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
-        }
-        for model in models
-        for t_aware in time_aware
-        for mean_or_median in data_repr
-    ]
-
-    os.makedirs(dir_name, exist_ok=True)
-
-    start = time.time()
-    for config in model_configs:
-        model = DTDiscrete(model=config["model_name"], time_aware=config["time_aware"], mean_or_median=config["mean_or_median"])
-        model.train()
-
-        with open(config["file_name"], "wb") as f:
-            pickle.dump(model, f)
-    
-    end = time.time()
-    print(f"\nTraining takes {(end-start)/60:.2f} minutes in total\n")
+    pass

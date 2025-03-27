@@ -1,6 +1,5 @@
 import time
 import os
-import sys
 import pickle
 import numpy as np
 import pandas as pd
@@ -16,7 +15,7 @@ NUM_QUESTIONS = 244
 
 
 
-def discretize_ability(num_classes: int = 8):
+def discretize_ability_train(num_classes: int):
     '''
     Add a new column which has the discretized ability level
     
@@ -33,25 +32,15 @@ def discretize_ability(num_classes: int = 8):
     labels = range(num_classes)
 
     train_set["ability_class"] = pd.cut(train_set["final_score"], bins=bins, labels=labels)
-    # val_set["ability_class"] = pd.cut(val_set["final_score"], bins=bins, labels=labels)
-    # test_set["ability_class"] = pd.cut(test_set["final_score"], bins=bins, labels=labels)
 
     return train_set
 
-
-train_set = discretize_ability()
-
-
-# some useful look-up table
-response_table = train_set.pivot_table(index="student_id", columns="item_id", values="response")
-time_table = train_set.pivot_table(index="student_id", columns="item_id", values="response_time")
-ability_table = train_set[["student_id", "ability_class"]].drop_duplicates().reset_index(drop=True).set_index("student_id")
 
 
 '''
 Reference: https://pypi.org/project/c45-decision-tree/
     - I only borrowed the overall structure, not the implementation
-    - I borrowed the idea of the above look-up tables from my teammate Reuben
+    - I borrowed the idea of the look-up tables from my teammate Reuben
 '''
 class QuestionNode:
     def __init__(self, item_id, time_taken, time_remain, num_qs_so_far, left, right, current_time_table, current_response_table):
@@ -77,15 +66,25 @@ class QuestionNode:
 
 
 
-class DTDiscrete:
-    def __init__(self, model: str, time_aware: bool, mean_or_median: str):
+class DTDiscreteAdaptive:
+    def __init__(self, model: str, 
+                 time_aware: bool, 
+                 mean_or_median: str, 
+                 num_classes: int):
         '''
         self.root_q (QuestionNode)
         self.model (str): model name (e.g. c45, id3, cart)
         self.time_aware (bool): True if you want the criterion (e.g. IG) to be divided by avg time
         '''
 
-        assert model in ["c45", "id3", "cart"], "Only c45, id3, cart are available"
+        train_set = discretize_ability_train(num_classes)
+
+        # look-up tables
+        self.time_table = train_set.pivot_table(index="student_id", columns="item_id", values="response_time")
+        self.response_table = train_set.pivot_table(index="student_id", columns="item_id", values="response")
+        self.ability_table = train_set[["student_id", "ability_class"]].drop_duplicates().reset_index(drop=True).set_index("student_id")
+
+        assert model in ["c45", "id3", "cart"]
         self.model = model
         self.time_aware = time_aware
         self.mean_or_median = mean_or_median
@@ -106,7 +105,7 @@ class DTDiscrete:
             - entropy (float)
         '''
 
-        current_ability_set = ability_table.loc[current_response_table.index]["ability_class"].values
+        current_ability_set = self.ability_table.loc[current_response_table.index]["ability_class"].values
         prob = np.bincount(current_ability_set) / len(current_ability_set)
         entropy = -np.sum(prob * np.log2(np.where(prob > 0, prob, 1)))
         
@@ -115,7 +114,7 @@ class DTDiscrete:
 
     def __gini(self, current_response_table):
         
-        current_ability_set = ability_table.loc[current_response_table.index]["ability_class"].values
+        current_ability_set = self.ability_table.loc[current_response_table.index]["ability_class"].values
         prob = np.bincount(current_ability_set) / len(current_ability_set)
         gini = 1 - np.sum(prob ** 2)
 
@@ -369,10 +368,6 @@ class DTDiscrete:
         self.__build_dt(root_q.left)
         self.__build_dt(root_q.right)
 
-    
-    def __shrink_tree(self):
-        pass
-
 
     def train(self):
         '''
@@ -380,8 +375,8 @@ class DTDiscrete:
         '''
 
         # choose the first question
-        item_id, time_taken = self.__select_best_q(current_response_table=response_table,
-                                                   current_time_table=time_table)
+        item_id, time_taken = self.__select_best_q(current_response_table=self.response_table,
+                                                   current_time_table=self.time_table)
 
         time_remain_root = MAX_TIME-time_taken
 
@@ -389,45 +384,17 @@ class DTDiscrete:
                                    time_taken=time_taken,
                                     time_remain=time_remain_root,
                                     num_qs_so_far=1,
-                                    current_response_table=response_table,
-                                    current_time_table=time_table,
+                                    current_response_table=self.response_table,
+                                    current_time_table=self.time_table,
                                     left=None,
                                     right=None)
         self.__build_dt(self.root_q)
+    
+
+    def __shrink_tree(self):
+        pass
 
 
 
 if __name__ == "__main__":
-    # train & save model
-    dir_name = "dt_models"
-    extension = ".pkl"
-    
-    models = ["id3", "c45", "cart"]
-    time_aware = [False, True]
-    data_repr = ["mean", "median"]
-
-    model_configs = [
-        {"model_name": model, 
-         "time_aware": t_aware, 
-         "mean_or_median": mean_or_median,
-         "path": os.path.join(
-             dir_name, 
-             f"{model}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
-        }
-        for model in models
-        for t_aware in time_aware
-        for mean_or_median in data_repr
-    ]
-
-    os.makedirs(dir_name, exist_ok=True)
-
-    start = time.time()
-    for config in model_configs:
-        model = DTDiscrete(model=config["model_name"], time_aware=config["time_aware"], mean_or_median=config["mean_or_median"])
-        model.train()
-
-        with open(config["path"], "wb") as f:
-            pickle.dump(model, f)
-    
-    end = time.time()
-    print(f"\nTraining takes {(end-start)/60:.2f} minutes in total\n")
+    pass
