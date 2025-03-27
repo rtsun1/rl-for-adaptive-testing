@@ -409,7 +409,7 @@ if __name__ == "__main__":
         {"model_name": model, 
          "time_aware": t_aware, 
          "mean_or_median": mean_or_median,
-         "file_name": os.path.join(
+         "path": os.path.join(
              dir_name, 
              f"{model}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
         }
@@ -425,7 +425,7 @@ if __name__ == "__main__":
         model = DTDiscrete(model=config["model_name"], time_aware=config["time_aware"], mean_or_median=config["mean_or_median"])
         model.train()
 
-        with open(config["file_name"], "wb") as f:
+        with open(config["path"], "wb") as f:
             pickle.dump(model, f)
     
     end = time.time()

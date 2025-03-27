@@ -1,7 +1,6 @@
 # look up table for evaluation
 import time
 import os
-import sys
 import pickle
 import numpy as np
 import pandas as pd
@@ -22,7 +21,6 @@ NUM_QUESTIONS = 244
 
 
 _, val_set, test_set = dataset_dt()
-
 
 discrimination_table = val_set.groupby("item_id")["discrimination"].first()
 difficulty_table = val_set.groupby("item_id")["difficulty"].first()
@@ -48,7 +46,7 @@ def generate_trajectories(model, stu_ids, device):
         - student_id (int)
     '''
 
-    trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1).to(device)
+    trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1.0).to(device)
 
     for i in range(N):
         time_remain = MAX_TIME
@@ -66,7 +64,7 @@ def generate_trajectories(model, stu_ids, device):
 
             num_qs += 1
             time_remain -= current_q_response_time
-            if time_remain < 0 or num_qs >= MAX_QUESTIONS:
+            if time_remain < 0 or num_qs > MAX_QUESTIONS:
                 break
             
             current_q_info = torch.tensor([current_q_discrimination, current_q_difficulty, current_q_response, current_q_response_time]).to(device)
@@ -82,8 +80,8 @@ def generate_trajectories(model, stu_ids, device):
 
 
 
-
 if __name__ == "__main__":
+    
     # validation
     stu_ids = val_set["student_id"].unique()
     abilities = val_set["final_score"].unique()
@@ -105,10 +103,10 @@ if __name__ == "__main__":
         {"model_name": model, 
          "time_aware": t_aware, 
          "mean_or_median": mean_or_median,
-         "file_name": os.path.join(
+         "path": os.path.join(
              dir_name, 
-             f"{model}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
-            #  f"{model}_old_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")     
+            #  f"{model}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
+             f"{model}_old_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")     
         }
         for model in models
         for t_aware in time_aware
@@ -117,13 +115,16 @@ if __name__ == "__main__":
 
     RMSE_all = dict()
     
+    dt_model = None
     for config in model_configs:
-        model_full_name = config["file_name"].split("/")[1].split(".")[0]     # get rid of dir and .pkl
-        print(f"Evaluating {model_full_name} ...")
+        try:
+            with open(config["path"], "rb") as f:
+                dt_model = pickle.load(f)
+        except:
+            continue
 
-        dt_model = None
-        with open(config["file_name"], "rb") as f:
-            dt_model = pickle.load(f)
+        model_full_name = config["path"].split("/")[1].split(".")[0]     # get rid of dir and .pkl
+        print(f"Evaluating {model_full_name} ...")
 
         # get students' answers
         trajectories = generate_trajectories(dt_model, stu_ids, device)
@@ -146,3 +147,4 @@ if __name__ == "__main__":
     print("\n======== RMSE Summary ========")
     for model, RMSE in RMSE_all_sorted.items():
         print(f"{model:<20}: {RMSE:.6f}")
+    
