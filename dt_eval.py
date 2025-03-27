@@ -81,7 +81,6 @@ def generate_trajectories(model, stu_ids, device):
 
 
 if __name__ == "__main__":
-    
     # validation
     stu_ids = val_set["student_id"].unique()
     abilities = val_set["final_score"].unique()
@@ -98,6 +97,7 @@ if __name__ == "__main__":
     models = ["c45", "id3", "cart"]
     time_aware = [False, True]
     data_repr = ["mean", "median"]
+    time_choice = ["all", "cond"]
 
     model_configs = [
         {"model_name": model, 
@@ -105,12 +105,12 @@ if __name__ == "__main__":
          "mean_or_median": mean_or_median,
          "path": os.path.join(
              dir_name, 
-            #  f"{model}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")
-             f"{model}_old_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")     
+             f"{model}{"_old" if choice == "all" else ""}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")     
         }
         for model in models
         for t_aware in time_aware
         for mean_or_median in data_repr
+        for choice in time_choice
     ]
 
     RMSE_all = dict()

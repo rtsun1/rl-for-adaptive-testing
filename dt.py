@@ -199,13 +199,13 @@ class DTDiscrete:
     def __compute_gini(self, item_id, current_response_table):
 
         if len(current_response_table) == 0:
-            return -np.inf
+            return np.inf
 
         current_response_table_left = current_response_table[current_response_table[item_id] == 0]
         current_response_table_right = current_response_table[current_response_table[item_id] == 1]
 
         if len(current_response_table_left) == 0 or len(current_response_table_right) == 0:
-            return -np.inf
+            return np.inf
 
         left_prob = len(current_response_table_left) / len(current_response_table)
         right_prob = len(current_response_table_right) / len(current_response_table)
@@ -400,9 +400,10 @@ class DTDiscrete:
 if __name__ == "__main__":
     # train & save model
     dir_name = "dt_models"
+    extension = ".pkl"
+    
     models = ["id3", "c45", "cart"]
     time_aware = [False, True]
-    extension = ".pkl"
     data_repr = ["mean", "median"]
 
     model_configs = [
