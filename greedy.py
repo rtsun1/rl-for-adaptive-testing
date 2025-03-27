@@ -7,7 +7,8 @@ from dqn import get_mask
 import numpy as np
 import os
 from dataclasses import dataclass
-from cat_wrappers import RecordActions
+from cat_wrappers import RecordActions, MLThetaObservationAndInfo
+import tqdm
 
 @dataclass
 class Args:
@@ -21,6 +22,8 @@ class Args:
     # Environment specific arguments
     time_limit_s: int = 60 * 15
     """the time limit for each episode/student in seconds"""
+    use_ml: bool = False
+    """whether to use the ML estimator"""
 
     # Algorithm specific arguments
     env_id: str = "CAT-v0"
@@ -50,6 +53,9 @@ def greedy_fi(args: Args):
     train_data, val_data, test_data = dataset_rl()
     env = gym.make("CAT-v0", dataset=val_data, time_limit_s=args.time_limit_s)  # 15 minutes
     env = RecordActions(env)
+    if args.use_ml:
+        print("Using ML estimator")
+        env = MLThetaObservationAndInfo(env, val_data, "cuda")
     # Greedy FI Algorithm
     obs, info = env.reset()
 
@@ -64,10 +70,11 @@ def greedy_fi(args: Args):
     thetas = np.zeros(n)  # estimated thetas
     true_thetas = np.zeros(n)
 
-    for x in range(n):  # n students
+    pbar = tqdm.tqdm(range(n))
+    for x in pbar:  # n students
         observation, info = env.reset(seed=42 + x)  # info gathered each reset
         # print(observation)
-        theta = observation["theta"][0]
+        theta = observation["theta"]
         fisher_inf = np.zeros(n_items)
         episode_over = False
         G = 0
@@ -91,10 +98,10 @@ def greedy_fi(args: Args):
             observation, reward, terminated, truncated, info = env.step(action)
             
             # Update theta
-            theta = observation["theta"][0]
+            theta = observation["theta"]
             G += reward
             # Log
-            print(action, observation, reward)
+            #print(action, observation, reward)
             
             episode_over = terminated or truncated
         
@@ -123,9 +130,11 @@ if __name__ == "__main__":
     print(thetas.round(2))
     print("True Thetas:")
     print(true_thetas.round(2))
+
+    mean_diff = np.mean(thetas - true_thetas)
+    print("Mean Error: ", mean_diff)
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
-    
-    print("RMSE: ", rmse)
+    print("RMSE == Std. Dev.: ", rmse)
 
     # Save the run
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"

@@ -97,7 +97,10 @@ def validation(model, validation_loader, num_question_range, device, validation_
     for sample in pbar_val:
         with torch.no_grad():
             x, label = sample[0].to(device), sample[1].to(device).float()
-            x, x_clean = split_into_n_questions(x, num_question_range, device)
+            x, x_clean = split_into_n_questions(x, [15, 15], device)
+            indices = np.random.permutation(x.shape[0])
+            x = x[indices]
+            label = label[indices]
             estimate = model(x)
             label = torch.reshape(label, estimate.shape)
             loss, loss_true = loss_fn_validation(x_clean, estimate, label, validation_type)
@@ -120,12 +123,12 @@ def train_ability_level_model(train_loader: DataLoader,
     print("Loading model...")
     model = RegressionModel().to(device)
     if model_name is not None:
-        model.load_state_dict(torch.load(model_name), weights_only=True)
+        model.load_state_dict(torch.load(model_name, weights_only=True))
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
     lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
 
-    best_val_loss = np.inf
+    best_val_loss = -np.inf
     
     print("Training model...")
     for epoch in range(epochs):
@@ -135,6 +138,10 @@ def train_ability_level_model(train_loader: DataLoader,
         for sample in pbar_samples:
             x_full, label = sample[0].to(device), sample[1].to(device).float()
             x, clean_x = split_into_n_questions(x_full, num_question_range, device)
+            indices = np.random.permutation(x.shape[0])
+            x = x[indices]
+            label = label[indices]
+
             estimate = model(x)
             label = torch.reshape(label, estimate.shape)
 
@@ -150,7 +157,7 @@ def train_ability_level_model(train_loader: DataLoader,
             #   lr_scheduler.step(avg_loss/(pbar_samples.n + 1))
 
         avg_loss /= len(train_loader)
-        lr_scheduler.step(avg_loss)
+        #lr_scheduler.step(avg_loss)
         
         # validating and saving the model
         print(f'Epoch: {epoch} - Loss: {avg_loss:.3f} ({time.time() - start:.2f} sec)')
@@ -197,6 +204,11 @@ def loss_fn_test(x, pred, target, loss_type="MSE"):
         loss_true = torch.nn.functional.l1_loss(eap, target)
         avg_loss = torch.nn.functional.l1_loss((pred_ability + eap) / 2, target)
         ratio_loss = torch.nn.functional.l1_loss((weight_model * pred_ability + weight_func * eap), target)
+    elif loss_type == "RMSE":
+        pred_loss = torch.sqrt(torch.nn.functional.mse_loss(pred_ability, target))
+        loss_true = torch.sqrt(torch.nn.functional.mse_loss(eap, target))
+        avg_loss = torch.sqrt(torch.nn.functional.mse_loss((pred_ability + eap) / 2, target))
+        ratio_loss = torch.sqrt(torch.nn.functional.mse_loss((weight_model * pred_ability + weight_func * eap), target))
     
     TEST_LOSSES[0].append(pred_loss.cpu().detach().numpy())
     TEST_LOSSES[1].append(loss_true.cpu().detach().numpy())
@@ -223,19 +235,19 @@ TEST_ESTIMATES = [[], [], [], []]
 TEST_LOSSES = [[], [], []]
 if __name__ == "__main__":
     EPOCHS = 10000
-    BATCH_SIZE = 8#128#1024#128#32#2048
-    NUM_QUESTION_RANGE = [1, 20]
+    BATCH_SIZE = 8#1024#128#32#2048
+    NUM_QUESTION_RANGE = [1, 15]
 
     print("Loading data...")
     train, val, test = dl.dataloader_ml(BATCH_SIZE, 1, 1)
 
     #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, eval_intervals=1)
-    #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/last_epoch.pt", eval_intervals=1)
-    #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/val_loss_best.pt")
+    train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/last_epoch.pt", eval_intervals=1)
+    #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/val_loss_best.pt", eval_intervals=1)
 
-    #"""
+    """
     model = RegressionModel().to(torch.device('cuda'))
-    model.load_state_dict(torch.load("checkpoints_AL_model/val_loss_best.pt"))
+    model.load_state_dict(torch.load("checkpoints_AL_model/val_loss_best.pt", weights_only=True))
 
     pbar_test = tqdm.tqdm(range(1, 31))
     for i in pbar_test:
@@ -245,16 +257,14 @@ if __name__ == "__main__":
         avg_true_func_loss = 0.
         pbar_epoch = tqdm.tqdm(range(1))
         for j in pbar_epoch:
-            val_loss, true_loss = test_func(model, test, [i, i], torch.device('cuda'), "MAE")
+            val_loss, true_loss = test_func(model, test, [i, i], torch.device('cuda'), "RMSE")
             avg_test_loss += val_loss
             avg_true_func_loss += true_loss
         avg_test_loss /= j+1
         avg_true_func_loss /= j+1
 
         mean_test_losses = np.mean(TEST_LOSSES, axis=1)
-        print(np.array(TEST_ESTIMATES).shape)
         TEST_ESTIMATES = np.array(TEST_ESTIMATES).reshape(4, -1)
-        print(TEST_ESTIMATES.shape)
         #print()
         #print(TEST_LOSSES)
         fig_estimates = ff.create_distplot(TEST_ESTIMATES, ["Predicted Model", "Function Provided", "Target", "Weighted Ratio"], bin_size=0.1)
@@ -262,6 +272,6 @@ if __name__ == "__main__":
         fig_estimates.write_html(f"graphs/estimates_{i}.html")
 
         fig_losses = ff.create_distplot(TEST_LOSSES, ["Predicted Model -> " + str(round(mean_test_losses[0], 3)), "Function Provided -> " + str(round(mean_test_losses[1], 3)), "Weighted Ratio -> " + str(round(mean_test_losses[2], 3))], bin_size=0.1)
-        fig_losses.update_layout(title=f"Mean Absolute Error (MAE) Losses for {i} questions")
+        fig_losses.update_layout(title=f"RMSE Losses for {i} questions")
         fig_losses.write_html(f"graphs/losses_{i}.html")
         #"""

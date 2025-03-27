@@ -534,7 +534,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             reset_times = []
 
         # PERIODICALLY EVAL
-        if global_step % args.eval_frequency == 0:
+        if global_step % args.eval_frequency == 0 and global_step >= args.eval_frequency:
             episodic_returns, thetas, true_thetas, histories, pruned = evaluator.evaluate(
                 agent=agent,
                 envs=eval_envs,

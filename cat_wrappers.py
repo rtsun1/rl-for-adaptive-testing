@@ -92,7 +92,7 @@ class SparseMSERewards(Wrapper):
         self.true_theta = float(info["true_theta"])
         MSE_curr = (self.theta - self.true_theta) ** 2
 
-        reward = self.MSE_last - MSE_curr
+        reward = (self.MSE_last - MSE_curr) * 10
         self.MSE_last = MSE_curr
 
         return obs, reward, terminated, truncated, info
@@ -101,7 +101,7 @@ class MLThetaObservationAndInfo(Wrapper):
     def __init__(self, env, dataset, device="cpu"):
         super().__init__(env)
         self.reg_model = RegressionModel().to(device)
-        self.reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True, map_location=device))
+        self.reg_model.load_state_dict(torch.load("checkpoints_AL_model/val_loss_best.pt", weights_only=True, map_location=device))
         self.dataset = dataset
         self.n_items = env.action_space.n
         self.device = device
