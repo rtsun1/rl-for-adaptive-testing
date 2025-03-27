@@ -20,19 +20,8 @@ MAX_TIME = 900
 NUM_QUESTIONS = 244
 
 
-_, val_set, test_set = dataset_dt()
-
-discrimination_table = val_set.groupby("item_id")["discrimination"].first()
-difficulty_table = val_set.groupby("item_id")["difficulty"].first()
-
-response_table = val_set.pivot_table(index="student_id", columns="item_id", values="response")
-time_table = val_set.pivot_table(index="student_id", columns="item_id", values="response_time")
-
-N = len(response_table)
-
-
 # prepare data for evaluation
-def generate_trajectories(model, stu_ids, device):
+def generate_trajectories(model, useful_tables, device):
     '''
     Generate and save the trajectory of questions answered by a student, each trajectory has the shape (244, 4) and looks like 
     [ [ "discrimination", "difficulty", "response", "response_time" ],      # q110      note that the response time should be the one in the val set not the avg time saved in the dt
@@ -45,6 +34,10 @@ def generate_trajectories(model, stu_ids, device):
         - model 
         - student_id (int)
     '''
+
+    [discrimination_table, difficulty_table, response_table, time_table, stu_ids] = [useful_tables[i] for i in range(5)]
+
+    N = len(response_table)
 
     trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1.0).to(device)
 
@@ -79,11 +72,20 @@ def generate_trajectories(model, stu_ids, device):
     return trajectories
 
 
+def eval_dt(model_paths: list, val_or_test: str):
+    _, val_set, test_set = dataset_dt()
+    assert val_or_test in ["val", "test"]
+    data_set = val_set if val_or_test == "val" else test_set
 
-if __name__ == "__main__":
-    # validation
-    stu_ids = val_set["student_id"].unique()
-    abilities = val_set["final_score"].unique()
+    useful_tables = [data_set.groupby("item_id")["discrimination"].first(), 
+                     data_set.groupby("item_id")["difficulty"].first(),
+                     data_set.pivot_table(index="student_id", columns="item_id", values="response"),
+                     data_set.pivot_table(index="student_id", columns="item_id", values="response_time"),
+                     data_set["student_id"].unique()]
+
+    abilities = data_set["final_score"].unique()
+
+    N = len(abilities)
 
     # regression model
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -91,48 +93,26 @@ if __name__ == "__main__":
     reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True, map_location=device))
     reg_model.eval()
 
-    dir_name = "dt_models"
-    extension = ".pkl"
-
-    models = ["c45", "id3", "cart"]
-    time_aware = [False, True]
-    data_repr = ["mean", "median"]
-    time_choice = ["all", "cond"]
-
-    model_configs = [
-        {"model_name": model, 
-         "time_aware": t_aware, 
-         "mean_or_median": mean_or_median,
-         "path": os.path.join(
-             dir_name, 
-             f"{model}{"_old" if choice == "all" else ""}_{mean_or_median}{"_T" if t_aware else ""}_D{extension}")     
-        }
-        for model in models
-        for t_aware in time_aware
-        for mean_or_median in data_repr
-        for choice in time_choice
-    ]
-
+    # evaluate
     RMSE_all = dict()
-    
     dt_model = None
-    for config in model_configs:
+    for path in model_paths:
         try:
-            with open(config["path"], "rb") as f:
+            with open(path, "rb") as f:
                 dt_model = pickle.load(f)
         except:
             continue
-
-        model_full_name = config["path"].split("/")[1].split(".")[0]     # get rid of dir and .pkl
-        print(f"Evaluating {model_full_name} ...")
+        
+        print(f"Evaluating {path.split("/")[1].split(".")[0]} on {val_or_test} ...", end=" ")
 
         # get students' answers
-        trajectories = generate_trajectories(dt_model, stu_ids, device)
+        trajectories = generate_trajectories(dt_model, useful_tables, device)
 
         # ability estimate
         with torch.no_grad():
             RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5 
-            RMSE_all[model_full_name] = RMSE
+            RMSE_all[path] = RMSE
+            print(f"{RMSE:.6f}")
 
 
         # batched data -- doesn't work (why?)
@@ -145,6 +125,23 @@ if __name__ == "__main__":
     # display
     RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1]))
     print("\n======== RMSE Summary ========")
-    for model, RMSE in RMSE_all_sorted.items():
-        print(f"{model:<20}: {RMSE:.6f}")
+    for path, RMSE in RMSE_all_sorted.items():
+        print(f"{path.split("/")[1].split(".")[0]:<20}: {RMSE:.6f}")
     
+    return RMSE_all_sorted
+
+
+
+if __name__ == "__main__":
+    model_paths = [
+        os.path.join(
+             "dt_models", 
+             f"{model}{"_old" if choice == "all" else ""}_{mean_or_median}{"_T" if t_aware else ""}_D{".pkl"}"
+        )     
+        for model in ["c45", "id3", "cart"]
+        for t_aware in [False, True]
+        for mean_or_median in ["mean", "median"]
+        for choice in ["all", "cond"]
+    ]
+    
+    eval_dt(model_paths, "val")
