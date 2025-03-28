@@ -11,11 +11,17 @@ if __name__ == "__main__":
     dir_name = "dt_models"
     extension = ".pkl"
     
-    models = ["id3", "c45", "cart"]
+    # models = ["id3", "c45", "cart"]
+    # time_aware = [False]
+    # data_repr = ["median"]
+    # num_classes_cand = [6, 7, 8, 9, 10, 11, 12]
+    # time_choices = ["adaptive", "static"]
+
+    models = ["c45"]
     time_aware = [False]
     data_repr = ["median"]
-    num_classes_cand = [6, 7, 8, 9, 10, 11, 12]
-    time_choices = ["adaptive", "static"]
+    num_classes_cand = [8]
+    time_choices = ["static"]
 
     model_configs = [
         {"model_name": model, 
@@ -36,12 +42,10 @@ if __name__ == "__main__":
 
     os.makedirs(dir_name, exist_ok=True)
 
-    # find the best model
-    best_RMSE = 10000
-    dt_model = None
+
+    # evaluate and save all models
 
     RMSE_all = dict()
-
     for config in model_configs:
         if config["time_choice"] == "adaptive":
             dt_model = DTDiscreteAdaptive(model=config["model_name"], 
@@ -65,17 +69,15 @@ if __name__ == "__main__":
         print(f"Evaluating {model_name} ... ", end="", flush=True)
         RMSE = eval_dt(dt_model, "val")
         RMSE_all[model_name] = RMSE
-        print(f"{RMSE:.6f} (current best: {best_RMSE:.6f})")
+        print(f"{RMSE:.6f}")
 
-        if RMSE < best_RMSE:
-            best_RMSE = RMSE
-            print(f"Best model so far! Saving to {config["path"]}")
-            with open(config["path"], "wb") as f:
-                pickle.dump(dt_model, f)
+        print(f"Saving to {config["path"]}\n")
+        with open(config["path"], "wb") as f:
+            pickle.dump(dt_model, f)
 
     # summary
     RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1]))
-    print("\n=========== RMSE Summary ===========")
+    print("=========== RMSE Summary ===========")
     for model_name, RMSE in RMSE_all_sorted.items():
         print(f"{model_name:<25}: {RMSE:.6f}")
     print()
