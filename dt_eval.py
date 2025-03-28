@@ -10,9 +10,6 @@ import torch
 import torch.torch_version
 from ability_level_model import RegressionModel
 
-ABILITY_MIN = -4
-ABILITY_MAX = 4
-
 MAX_QUESTIONS = 15
 MAX_TIME = 900
 
@@ -71,7 +68,7 @@ def generate_trajectories(model, useful_tables, device):
     return trajectories
 
 
-def eval_dt(path: str, val_or_test: str):
+def eval_dt(dt_model, val_or_test: str):
     _, val_set, test_set = dataset_dt()
     assert val_or_test in ["val", "test"]
     data_set = val_set if val_or_test == "val" else test_set
@@ -92,47 +89,15 @@ def eval_dt(path: str, val_or_test: str):
     reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True, map_location=device))
     reg_model.eval()
 
-    # evaluate
-    dt_model = None
-    try:
-        with open(path, "rb") as f:
-            dt_model = pickle.load(f)
-    except:
-        return None
-    
-    print(f"Evaluating {path.split("/")[1].split(".")[0]} on {val_or_test} ...", end=" ")
-
     # get students' answers
     trajectories = generate_trajectories(dt_model, useful_tables, device)
 
     # ability estimate
     with torch.no_grad():
         RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5        # batched data doesn't work
-        print(f"{RMSE:.6f}")
         return RMSE
 
 
 
 if __name__ == "__main__":
-    model_paths = [
-        os.path.join(
-             "dt_models", 
-             f"{model}{"_old" if choice == "all" else ""}_{mean_or_median}{"_T" if t_aware else ""}_D{".pkl"}"
-        )     
-        for model in ["c45", "id3", "cart"]
-        for t_aware in [False, True]
-        for mean_or_median in ["mean", "median"]
-        for choice in ["all", "cond"]
-    ]
-    
-    RMSE_all = dict()
-    for path in model_paths: 
-        RMSE_all[path] = eval_dt(path, "val")
-    
-    print()
-    RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda rmse_pair: rmse_pair[1]))
-    print("\n======== RMSE Summary ========")
-    for path, RMSE in RMSE_all_sorted.items():
-        print(f"{path.split("/")[1].split(".")[0]:<20}: {RMSE:.6f}")
-    print()
-    
+    pass

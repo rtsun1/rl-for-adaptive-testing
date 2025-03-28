@@ -290,7 +290,7 @@ class DTDiscreteStatic:
         right_item_id, right_time_taken = self.__select_best_q(qs_available=root_q.qs_available.copy(),
                                                                current_set=current_set_right)
         end = time.time()
-        print(f"{end-start:.6f}")
+        # print(f"{end-start:.6f}")
         
         left_q, right_q = None, None
         if left_item_id is not None:
@@ -365,6 +365,19 @@ class DTDiscreteStatic:
                                     left=None,
                                     right=None)
         self.__build_dt(self.root_q)
+        self.__shrink_tree(self.root_q)
+        self.q_bank = None
+        self.stu_answer_table = None
+        self.stu_ability_table = None
+
+
+    def __shrink_tree(self, current_node):
+        if current_node is not None:
+            current_node.current_set = None
+            current_node.qs_available = None
+
+            self.__shrink_tree(current_node.left)
+            self.__shrink_tree(current_node.right)
 
 
 

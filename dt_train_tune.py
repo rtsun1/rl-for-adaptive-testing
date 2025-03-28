@@ -37,10 +37,7 @@ if __name__ == "__main__":
     os.makedirs(dir_name, exist_ok=True)
 
     # find the best model
-    start = time.time()
-    
     best_RMSE = 10000
-    best_model_path = None
     dt_model = None
 
     RMSE_all = dict()
@@ -59,26 +56,26 @@ if __name__ == "__main__":
                                           num_classes=config["num_classes"])
         
         model_name = config["path"].split("/")[1].split(".")[0]
-        print(f"Training {model_name} ...")
+        start = time.time()
+        print(f"Training {model_name} ... ", end="", flush=True)
         dt_model.train()
+        end = time.time()
+        print(f"{(end - start)/60:.2f} mins")
 
-        print(f"Evaluating {model_name} ... ", end="")
-        RMSE = eval_dt(config["path"], "val")
+        print(f"Evaluating {model_name} ... ", end="", flush=True)
+        RMSE = eval_dt(dt_model, "val")
         RMSE_all[model_name] = RMSE
         print(f"{RMSE:.6f} (current best: {best_RMSE:.6f})")
 
         if RMSE < best_RMSE:
-            print(f"Best model so far! Saving {model_name} to {config["path"]}")
+            best_RMSE = RMSE
+            print(f"Best model so far! Saving to {config["path"]}")
             with open(config["path"], "wb") as f:
                 pickle.dump(dt_model, f)
-        
-        print()
-    
-    end = time.time()
-    print(f"\nTraining takes {(end-start)/60:.2f} minutes in total\n")
 
     # summary
     RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1]))
-    print("\n======== RMSE Summary ========")
+    print("\n=========== RMSE Summary ===========")
     for model_name, RMSE in RMSE_all_sorted.items():
-        print(f"{model_name:<20}: {RMSE:.6f}")
+        print(f"{model_name:<25}: {RMSE:.6f}")
+    print()

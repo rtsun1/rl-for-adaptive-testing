@@ -363,7 +363,7 @@ class DTDiscreteAdaptive:
         root_q.right = right_q
 
         end = time.time()
-        print(f"{end-start:.6f}")
+        # print(f"{end-start:.6f}")
 
         self.__build_dt(root_q.left)
         self.__build_dt(root_q.right)
@@ -389,10 +389,19 @@ class DTDiscreteAdaptive:
                                     left=None,
                                     right=None)
         self.__build_dt(self.root_q)
-    
+        self.__shrink_tree(self.root_q)
+        self.time_table = None
+        self.response_table = None
+        self.ability_table = None
 
-    def __shrink_tree(self):
-        pass
+
+    def __shrink_tree(self, current_node):
+        if current_node is not None:
+            current_node.current_response_table = None
+            current_node.current_time_table = None
+
+            self.__shrink_tree(current_node.left)
+            self.__shrink_tree(current_node.right)
 
 
 
