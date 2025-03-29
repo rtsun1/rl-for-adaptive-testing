@@ -203,7 +203,7 @@ if __name__ == "__main__":
 
     # optuna.delete_study(study_name="dqn_masking", storage="sqlite:///studies.db")
     study = optuna.create_study(
-        study_name=EXP_NAME, #'dqn_ml_mse_10_reward', 
+        study_name='dqn_ml_mse_10_reward', 
         storage="sqlite:///studies.db",
         load_if_exists=True,
         sampler=sampler, pruner=pruner, direction="minimize"

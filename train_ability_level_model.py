@@ -1,5 +1,5 @@
 import dataloader as dl
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 from ability_level_model import RegressionModel
 
 import time
@@ -10,12 +10,46 @@ import random
 import torch
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.nn.utils import clip_grad_norm_
 
-import pandas as pd
 import plotly.figure_factory as ff
+import plotly.express as px
+import plotly.graph_objects as go
 import numpy as np
-from scipy.stats import norm
+
+from dataclasses import dataclass
+import os
+
+@dataclass
+class Args:
+    cuda: bool = True
+    """Whether to use GPU or not"""
+    lr: float = 2e-5
+    """Learning rate for the model"""
+    epochs: int = 10_000
+    """Number of epochs to train the model"""
+    training_batch_size: int = 8
+    """Batch size for training"""
+    question_range: tuple = (1, 244)
+    """Range of number of questions to sample for each student"""
+    validation_question_range: tuple = (15, 15)
+    """Range of number of questions to sample for validation"""
+    eval_intervals: int = 1
+    """Number of epochs between evaluations"""
+    dataset: str = "train"
+    """Dataset to use [train, val, test]"""
+    model_path: str|None = None
+    """Path of the model weights to load [last, best, path_to_weights.pt]"""
+    mode: str = "train"
+    """Mode to run [train, test]"""
+    test_loss: str = "RMSE"
+    """Loss function to use for testing [MSE, MAE, RMSE]"""
+    test_epochs: int = 3
+    """Number of epochs to test the model"""
+    test_question_range: tuple = (1, 30)
+    """Performance graphs for number of questions in this range"""
+    verbose: bool = True
+    """Whether to print verbose output"""
+
 
 # Define constants for integration
 QUADRATURE_POINTS = 41
@@ -97,7 +131,7 @@ def validation(model, validation_loader, num_question_range, device, validation_
     for sample in pbar_val:
         with torch.no_grad():
             x, label = sample[0].to(device), sample[1].to(device).float()
-            x, x_clean = split_into_n_questions(x, [15, 15], device)
+            x, x_clean = split_into_n_questions(x, num_question_range, device)
             indices = np.random.permutation(x.shape[0])
             x = x[indices]
             label = label[indices]
@@ -110,7 +144,8 @@ def validation(model, validation_loader, num_question_range, device, validation_
     return avg_loss / len(validation_loader), avg_loss_true / len(validation_loader)
 
 
-def train_ability_level_model(train_loader: DataLoader, 
+def train_ability_level_model(args: Args,
+                              train_loader: DataLoader, 
                               validation_loader: DataLoader,
                               epochs: int,
                               num_question_range = [1, 20], 
@@ -126,13 +161,14 @@ def train_ability_level_model(train_loader: DataLoader,
         model.load_state_dict(torch.load(model_name, weights_only=True))
 
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
+    #lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5, patience=10)
 
     best_val_loss = -np.inf
     
     print("Training model...")
+    train_loader.shuffle = True
     for epoch in range(epochs):
-        avg_loss = 0.
+        avg_loss = 0.0
         start = time.time()
         pbar_samples = tqdm.tqdm(train_loader, leave=False)
         for sample in pbar_samples:
@@ -165,16 +201,20 @@ def train_ability_level_model(train_loader: DataLoader,
 
         if epoch % eval_intervals == 0 or epoch == epochs - 1:
             # generate some sample to see the quality of the generative model
-            avg_val_loss, avg_true_loss = validation(model, validation_loader, num_question_range, device)
-            print(f'Validation Loss: {avg_val_loss:.3f}, Scoring Loss: {avg_true_loss:.3f}')
+            avg_val_loss, avg_true_loss = validation(model, validation_loader, args.validation_question_range, device)
             if (avg_true_loss - avg_val_loss) > best_val_loss:
                 best_val_loss = avg_true_loss - avg_val_loss
-                torch.save(model.state_dict(), f'checkpoints_AL_model/val_loss_best.pt')
+                if not os.path.exists('checkpoints'):
+                    os.makedirs('checkpoints')
+                torch.save(model.state_dict(), f'checkpoints/val_loss_best.pt')
+            print(f'Validation Loss: {avg_val_loss:.3f}, Scoring Loss: {avg_true_loss:.3f}, Best Difference: {best_val_loss:.3f}')
         
         failure = True
         while failure:
             try:
-                torch.save(model.state_dict(), f'checkpoints_AL_model/last_epoch.pt')
+                if not os.path.exists('checkpoints'):
+                    os.makedirs('checkpoints')
+                torch.save(model.state_dict(), f'checkpoints/last_epoch.pt')
                 failure = False
             except:
                 print("Failed to save model, retrying...")
@@ -190,32 +230,22 @@ def loss_fn_test(x, pred, target, loss_type="MSE"):
     TEST_ESTIMATES[0].append(pred_ability.cpu().detach().numpy()[0])
     TEST_ESTIMATES[1].append(eap.cpu().detach().numpy()[0])
     TEST_ESTIMATES[2].append(target.cpu().detach().numpy()[0])
-    weight_func = (20 + target.shape[0]) / 90 if target.shape[0] < 70 else 1
-    weight_model = 1 - weight_func
-    TEST_ESTIMATES[3].append((weight_model * pred_ability + weight_func * eap).cpu().detach().numpy()[0])
 
     if loss_type == "MSE":
         pred_loss = torch.nn.functional.mse_loss(pred_ability, target)
         loss_true = torch.nn.functional.mse_loss(eap, target)
-        avg_loss = torch.nn.functional.mse_loss((pred_ability + eap) / 2, target)
-        ratio_loss = torch.nn.functional.mse_loss((weight_model * pred_ability + weight_func * eap), target)
     elif loss_type == "MAE":
         pred_loss = torch.nn.functional.l1_loss(pred_ability, target)
         loss_true = torch.nn.functional.l1_loss(eap, target)
-        avg_loss = torch.nn.functional.l1_loss((pred_ability + eap) / 2, target)
-        ratio_loss = torch.nn.functional.l1_loss((weight_model * pred_ability + weight_func * eap), target)
     elif loss_type == "RMSE":
         pred_loss = torch.sqrt(torch.nn.functional.mse_loss(pred_ability, target))
         loss_true = torch.sqrt(torch.nn.functional.mse_loss(eap, target))
-        avg_loss = torch.sqrt(torch.nn.functional.mse_loss((pred_ability + eap) / 2, target))
-        ratio_loss = torch.sqrt(torch.nn.functional.mse_loss((weight_model * pred_ability + weight_func * eap), target))
     
     TEST_LOSSES[0].append(pred_loss.cpu().detach().numpy())
     TEST_LOSSES[1].append(loss_true.cpu().detach().numpy())
-    TEST_LOSSES[2].append(ratio_loss.cpu().detach().numpy())
     return pred_loss, loss_true
 
-def test_func(model, validation_loader, num_question_range, device, validation_type="MSE"):
+def test_func(args: Args, model, validation_loader, num_question_range, device, validation_type="MSE"):
     avg_loss = 0.
     avg_loss_true = 0.
     for sample in validation_loader:
@@ -234,44 +264,95 @@ def test_func(model, validation_loader, num_question_range, device, validation_t
 TEST_ESTIMATES = [[], [], [], []]
 TEST_LOSSES = [[], [], []]
 if __name__ == "__main__":
-    EPOCHS = 10000
-    BATCH_SIZE = 8#1024#128#32#2048
-    NUM_QUESTION_RANGE = [1, 15]
+    import tyro
+    args = tyro.cli(Args)
 
     print("Loading data...")
-    train, val, test = dl.dataloader_ml(BATCH_SIZE, 1, 1)
+    train, val, test = dl.dataloader_ml(args.training_batch_size, 1, 1)
 
-    #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, eval_intervals=1)
-    train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/last_epoch.pt", eval_intervals=1)
-    #train_ability_level_model(train, val, EPOCHS, NUM_QUESTION_RANGE, "checkpoints_AL_model/val_loss_best.pt", eval_intervals=1)
+    if args.dataset == "train":
+        data = train
+    elif args.dataset == "val":
+        data = val
+    elif args.dataset == "test":
+        data = test
+    
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("mps" if torch.mps.is_available() and args.cuda else device)  # cuda and mps are taken to mean user wants to use the gpu
+    
+    if args.model_path == "last":
+        args.model_path = "checkpoints/last_epoch.pt"
+    elif args.model_path == "best":
+        args.model_path = "checkpoints/val_loss_best.pt"
 
-    """
-    model = RegressionModel().to(torch.device('cuda'))
-    model.load_state_dict(torch.load("checkpoints_AL_model/val_loss_best.pt", weights_only=True))
+    if args.mode == "train":
+        print("Training model...")
+        train_ability_level_model(args, 
+                                  train_loader=train, 
+                                  validation_loader=val, 
+                                  epochs=args.epochs, 
+                                  num_question_range=args.question_range, 
+                                  model_name=args.model_path,
+                                  lr=args.lr,
+                                  device=device,
+                                  eval_intervals=args.eval_intervals)
+    elif args.mode == "test":
+        print("Testing model...")
 
-    pbar_test = tqdm.tqdm(range(1, 31))
-    for i in pbar_test:
-        TEST_ESTIMATES = [[], [], [], []]
-        TEST_LOSSES = [[], [], []]
-        avg_test_loss = 0.
-        avg_true_func_loss = 0.
-        pbar_epoch = tqdm.tqdm(range(1))
-        for j in pbar_epoch:
-            val_loss, true_loss = test_func(model, test, [i, i], torch.device('cuda'), "RMSE")
-            avg_test_loss += val_loss
-            avg_true_func_loss += true_loss
-        avg_test_loss /= j+1
-        avg_true_func_loss /= j+1
+        if not os.path.exists('graphs'):
+                os.makedirs('graphs')
+        if not os.path.exists("graphs/img"):
+            os.makedirs("graphs/img")
+        if not os.path.exists("graphs/html"):
+            os.makedirs("graphs/html")
 
-        mean_test_losses = np.mean(TEST_LOSSES, axis=1)
-        TEST_ESTIMATES = np.array(TEST_ESTIMATES).reshape(4, -1)
-        #print()
-        #print(TEST_LOSSES)
-        fig_estimates = ff.create_distplot(TEST_ESTIMATES, ["Predicted Model", "Function Provided", "Target", "Weighted Ratio"], bin_size=0.1)
-        fig_estimates.update_layout(title=f"Estimates for {i} questions")
-        fig_estimates.write_html(f"graphs/estimates_{i}.html")
+        if args.model_path is None:
+            args.model_path = "checkpoints/val_loss_best.pt"
+        model = RegressionModel().to(torch.device(device))
+        model.load_state_dict(torch.load(args.model_path, weights_only=True))
+        data.shuffle = True
 
-        fig_losses = ff.create_distplot(TEST_LOSSES, ["Predicted Model -> " + str(round(mean_test_losses[0], 3)), "Function Provided -> " + str(round(mean_test_losses[1], 3)), "Weighted Ratio -> " + str(round(mean_test_losses[2], 3))], bin_size=0.1)
-        fig_losses.update_layout(title=f"RMSE Losses for {i} questions")
-        fig_losses.write_html(f"graphs/losses_{i}.html")
-        #"""
+        pbar_test = tqdm.tqdm(range(args.test_question_range[0], args.test_question_range[1]+1))
+        for i in pbar_test:
+            TEST_ESTIMATES = [[], [], []]
+            TEST_LOSSES = [[], []]
+            avg_test_loss = 0.0
+            avg_true_func_loss = 0.0
+            pbar_epoch = tqdm.tqdm(range(args.test_epochs))
+            for j in pbar_epoch:
+                val_loss, true_loss = test_func(args, model, data, [i, i], torch.device(device), args.test_loss)
+                avg_test_loss += val_loss
+                avg_true_func_loss += true_loss
+            avg_test_loss /= j+1
+            avg_true_func_loss /= j+1
+
+
+            mean_test_losses = np.mean(TEST_LOSSES, axis=1)
+            TEST_ESTIMATES = np.array(TEST_ESTIMATES).reshape(3, -1)
+            #fig_estimates = ff.create_distplot(TEST_ESTIMATES, ["ML Model Ability Estimate", "EAP Ability Estimate", "Target Ability Level"], bin_size=0.1)
+            fig_estimates = go.Figure()
+            fig_estimates.add_trace(go.Histogram(x=TEST_ESTIMATES[2], name="Target Ability Level", histnorm='probability density', opacity=0.85, marker=dict(color='#00BA38'))) #green
+            fig_estimates.add_trace(go.Histogram(x=TEST_ESTIMATES[0], name="ML Model Ability Estimate", histnorm='probability density', opacity=0.75, marker=dict(color='#56B4E9'))) #blue
+            fig_estimates.add_trace(go.Histogram(x=TEST_ESTIMATES[1], name="EAP Ability Estimate", histnorm='probability density', opacity=0.6, marker=dict(color='#FF7F00'))) #orange
+            fig_estimates.update_layout(title=f"Estimates for {i} Questions",
+                                        xaxis_title="Ability Level",
+                                        yaxis_title="Probability Density",
+                                        barmode='overlay')
+            fig_estimates.write_html(f"graphs/html/estimates_{i}.html")
+            #print("Attempting to write image for", i)
+            #fig_estimates.write_image("graphs/img/estimates_" + str(i) + ".pdf", engine="kaleido")
+            #pio.write_image(fig_estimates, "graphs/img/estimates_" + str(i) + ".pdf")
+            #print("Image written for", i)
+
+            #fig_losses = ff.create_distplot(TEST_LOSSES, ["ML Model -> " + str(round(mean_test_losses[0], 3)), "EAP -> " + str(round(mean_test_losses[1], 3))], bin_size=0.1,)
+            fig_losses = go.Figure()
+            mean_loss_0 = round(mean_test_losses[0], 3)
+            fig_losses.add_trace(go.Violin(x=TEST_LOSSES[0], name=f"ML Model Loss -> {args.test_loss}: {mean_loss_0:.3f}  ", jitter=0.2, marker=dict(color='#56B4E9'))) #blue
+            mean_loss_1 = round(mean_test_losses[1], 3)
+            fig_losses.add_trace(go.Violin(x=TEST_LOSSES[1], name=f"EAP Loss -> {args.test_loss}: {mean_loss_1:.3f}  ", jitter=0.2, marker=dict(color='#FF7F00'))) #orange
+            fig_losses.update_traces(meanline_visible=True)
+            fig_losses.update_layout(title=f"{args.test_loss} Losses for {i} Questions",
+                                     legend=dict(traceorder='reversed'),)
+            fig_losses.write_html(f"graphs/html/losses_{i}.html")
+            #fig_losses.write_image("graphs/img/losses_" + str(i) + ".pdf", engine="kaleido")
+            #"""

@@ -52,7 +52,7 @@ class RegressionModel(nn.Module):
         self.relu = nn.ReLU()
         self.dropout = nn.Dropout(0.1)
         num_entries = num_questions * num_data
-        self.fc1 = nn.Linear(num_entries, num_entries*2)
+        self.fc1 = nn.Linear(num_entries + 2, num_entries*2)
         self.fc2 = nn.Linear(num_entries*2, num_entries*1)
         #self.fc3 = nn.Linear(num_entries*1 + 2, num_entries//6)
         self.fc3 = nn.Linear(num_entries*1, num_entries//6)
@@ -64,18 +64,19 @@ class RegressionModel(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # TODO: embed time
+        #"""
+        x_clean = x[torch.any(x != torch.tensor([-1, -1, -1, -1]).to(x.device), dim=-1)]
+        x_clean = x_clean.view(x.shape[0], -1, x.shape[2])
 
-        #x_clean = x[torch.any(x != torch.tensor([-1, -1, -1, -1]).to(x.device), dim=-1)]
-        #x_clean = x_clean.view(x.shape[0], -1, x.shape[2])
-
-        #eap, eap_se = calculate_eap_ability(x_clean[:,:,2], x_clean[:,:,0], x_clean[:,:,1])
-        #eap = eap.unsqueeze(-1).float()
-        #eap_se = eap_se.unsqueeze(-1).float()
-
+        eap, eap_se = calculate_eap_ability(x_clean[:,:,2], x_clean[:,:,0], x_clean[:,:,1])
+        eap = eap.unsqueeze(-1).float()
+        eap_se = eap_se.unsqueeze(-1).float()
+        #"""
         input_data = x.flatten(1).float()
+        input_data = torch.cat([input_data, eap, eap_se], dim=1)
         out = self.relu(self.fc1(input_data))
         out = self.relu(self.fc2(out))
-        #out = torch.cat([out, eap, eap_se], dim=1)
+        
         out = self.relu(self.fc3(out))
         #out = self.relu(self.dropout(self.fc2(out)))
         #out = self.relu(self.dropout(self.fc3(out)))

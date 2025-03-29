@@ -7,7 +7,7 @@ from dqn import get_mask
 import numpy as np
 import os
 from dataclasses import dataclass
-from cat_wrappers import RecordActions, MLThetaObservationAndInfo
+from cat_wrappers import RecordActions, MLThetaObservationAndInfo, WeightedMLThetaObservationAndInfo
 import tqdm
 
 @dataclass
@@ -22,8 +22,8 @@ class Args:
     # Environment specific arguments
     time_limit_s: int = 60 * 15
     """the time limit for each episode/student in seconds"""
-    use_ml: bool = False
-    """whether to use the ML estimator"""
+    ml: str = "none"
+    """whether to use the ML estimator [ml, weighted, none]"""
 
     # Algorithm specific arguments
     env_id: str = "CAT-v0"
@@ -32,8 +32,10 @@ class Args:
     """whether to divide the Fisher Information by the average time to answer the question"""
 
     # Evaluation specific arguments
-    eval_episodes: int = 100
+    eval_episodes: int = 10_000
     """the number of episodes/students to evaluate"""
+    dataset: str = "val"
+    """the dataset to use for evaluation [train, val, test]"""
 
 def greedy_fi(args: Args):
     """
@@ -51,15 +53,24 @@ def greedy_fi(args: Args):
     time_aware = args.time_aware
 
     train_data, val_data, test_data = dataset_rl()
-    env = gym.make("CAT-v0", dataset=val_data, time_limit_s=args.time_limit_s)  # 15 minutes
+    if args.dataset == "train":
+        data = train_data
+    elif args.dataset == "val":
+        data = val_data
+    elif args.dataset == "test":
+        data = test_data
+
+    env = gym.make("CAT-v0", dataset=data, time_limit_s=args.time_limit_s)  # 15 minutes
     env = RecordActions(env)
-    if args.use_ml:
+    if args.ml == "ml":
         print("Using ML estimator")
-        env = MLThetaObservationAndInfo(env, val_data, "cuda")
+        env = MLThetaObservationAndInfo(env, data, "cuda")
+    elif args.ml == "weighted":
+        env = WeightedMLThetaObservationAndInfo(env, data, "cuda")
     # Greedy FI Algorithm
     obs, info = env.reset()
 
-    questions = val_data.drop_duplicates(subset="item_id", keep="first")
+    questions = data.drop_duplicates(subset="item_id", keep="first")
     # sort questions just like the env does (may be unnecessary bc env sorts in place)
     questions = questions.sort_values(by="item_id")  # sorting inplace gives a warning
     questions.reset_index(drop=True, inplace=True)
@@ -132,7 +143,7 @@ if __name__ == "__main__":
     print(true_thetas.round(2))
 
     mean_diff = np.mean(thetas - true_thetas)
-    print("Mean Error: ", mean_diff)
+    print("Mean Error (y_hat - y): ", mean_diff)
     rmse = np.sqrt(np.mean((thetas - true_thetas) ** 2))
     print("RMSE == Std. Dev.: ", rmse)
 

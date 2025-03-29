@@ -101,7 +101,7 @@ class MLThetaObservationAndInfo(Wrapper):
     def __init__(self, env, dataset, device="cpu"):
         super().__init__(env)
         self.reg_model = RegressionModel().to(device)
-        self.reg_model.load_state_dict(torch.load("checkpoints_AL_model/val_loss_best.pt", weights_only=True, map_location=device))
+        self.reg_model.load_state_dict(torch.load("ml_weights/best_model.pt", weights_only=True, map_location=device))
         self.dataset = dataset
         self.n_items = env.action_space.n
         self.device = device
@@ -126,8 +126,47 @@ class MLThetaObservationAndInfo(Wrapper):
         curr_state = torch.ones_like(curr_data) * -1
         curr_state[list(answered)] = curr_data[list(answered)]
         curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
-        estimated_ability_level = self.reg_model(curr_state)
-        theta = estimated_ability_level[0].item()
+        estimated_ability_level = self.reg_model(curr_state)[0].item()
+
+        obs["theta"] = estimated_ability_level
+        info["theta"] = estimated_ability_level
+
+        return obs, reward, terminated, truncated, info
+    
+class WeightedMLThetaObservationAndInfo(Wrapper):
+    def __init__(self, env, dataset, device="cpu"):
+        super().__init__(env)
+        self.reg_model = RegressionModel().to(device)
+        self.reg_model.load_state_dict(torch.load("ml_weights/best_model.pt", weights_only=True, map_location=device))
+        self.dataset = dataset
+        self.n_items = env.action_space.n
+        self.device = device
+    
+    def reset(self, seed = None, options = None):
+        obs, info = super().reset(seed=seed, options=options)
+
+        self.sid_idx = info["sid_idx"]
+        start = self.sid_idx * self.n_items
+        stop = (self.sid_idx + 1) * self.n_items
+        self.torch_dataset = self.dataset[start:stop]
+        self.torch_dataset = torch.tensor(self.torch_dataset[["discrimination", "difficulty", "response", "response_time"]].values).float().to(self.device)
+
+        return obs, info  # leave default theta at reset
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        answered = info["answered"]  # include the question just asked for the model
+
+        curr_data = self.torch_dataset
+        curr_state = torch.ones_like(curr_data) * -1
+        curr_state[list(answered)] = curr_data[list(answered)]
+        curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
+        estimated_ability_level = self.reg_model(curr_state)[0].item()
+
+        weight_func = (20 + len(list(answered))) / 90
+        weight_model = 1 - weight_func
+        theta = weight_model * estimated_ability_level + weight_func * obs["theta"].item()
 
         obs["theta"] = theta
         info["theta"] = theta
