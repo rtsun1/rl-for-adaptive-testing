@@ -18,12 +18,6 @@ NUM_QUESTIONS = 244
 def discretize_ability_train(num_classes: int):
     '''
     Add a new column which has the discretized ability level
-    
-    Parameters: 
-        - num_classes (int): the number of classes to divide the ability range into
-
-    Returns:
-        - train_set, val_set, test_set (all pd dataframe) with one more column of the discretized ability level
     '''
 
     train_set, _, _ = dataset_dt()
@@ -43,21 +37,25 @@ Reference: https://pypi.org/project/c45-decision-tree/
     - I borrowed the idea of the look-up tables from my teammate Reuben
 '''
 class QuestionNode:
-    def __init__(self, item_id, time_taken, time_remain, num_qs_so_far, left, right, current_time_table, current_response_table):
+    def __init__(self, item_id, time_taken, time_remain, num_qs_so_far, ability, left, right, current_time_table, current_response_table):
         '''
-        self.item_id (str): question name
-        self.time_remain (float): Time remaining AFTER answering the current question (assuming that correct/wrong takes the same amount of time)
-        self.num_qs_so_far (int): 0 ~ 15
-        self.current_response_table (pd df): shrinked version of response_table that keeps track of the subset given the answered questions
-        self.left (QuestionNode or None)
-        self.right (QuestionNode or None)
+        item_id: question id
+        time_taken: how long does it take to answer the current question
+        time_remain: how many time left
+        num_qs_so_far: how many question selected so far
+        ability: current ability estimate so far
+        left: question if the current question is answered wrongly
+        right: question if the current question is answered correctly
+        current_time_table: columns: questions available, rows: students available, entry: time taken
+        current_response_table: columns: questions available, rows: students available, entry: answered correctly or wrongly
         '''
 
         self.item_id = item_id
         self.time_taken = time_taken
-
         self.time_remain = time_remain
         self.num_qs_so_far = num_qs_so_far
+        self.ability = ability
+
         self.current_response_table = current_response_table
         self.current_time_table = current_time_table
 
@@ -67,14 +65,15 @@ class QuestionNode:
 
 
 class DTDiscreteAdaptive:
-    def __init__(self, model: str, 
+    def __init__(self, model: str,
                  time_aware: bool, 
                  mean_or_median: str, 
                  num_classes: int):
         '''
-        self.root_q (QuestionNode)
-        self.model (str): model name (e.g. c45, id3, cart)
-        self.time_aware (bool): True if you want the criterion (e.g. IG) to be divided by avg time
+        model: model name
+        time_aware: want to divide e.g. IG by T or no
+        mean_or_median: when computing time taken, use mean or median over the students
+        num_classes: how many classes to split (-4, 4) ie ability range into
         '''
 
         train_set = discretize_ability_train(num_classes)
@@ -82,9 +81,11 @@ class DTDiscreteAdaptive:
         # look-up tables
         self.time_table = train_set.pivot_table(index="student_id", columns="item_id", values="response_time")
         self.response_table = train_set.pivot_table(index="student_id", columns="item_id", values="response")
-        self.ability_table = train_set[["student_id", "ability_class"]].drop_duplicates().reset_index(drop=True).set_index("student_id")
+        self.ability_table = train_set[["student_id", "final_score", "ability_class"]].drop_duplicates().reset_index(drop=True).set_index("student_id")
 
         assert model in ["c45", "id3", "cart"]
+        assert mean_or_median in ["mean", "median"]
+
         self.model = model
         self.time_aware = time_aware
         self.mean_or_median = mean_or_median
@@ -94,15 +95,8 @@ class DTDiscreteAdaptive:
 
     def __entropy(self, current_response_table):
         '''
-        Compute the entropy of the ability class given the answered questions, where
-            - p_i = |S_i| / |S|
-            - entropy = \sum_i - p_i * log_2(p_i)
-
-        Parameter:
-            - current_response_table (pd df)
-        
-        Return:
-            - entropy (float)
+        - p_i = |S_i| / |S|
+        - entropy = \sum_i - p_i * log_2(p_i)
         '''
 
         current_ability_set = self.ability_table.loc[current_response_table.index]["ability_class"].values
@@ -113,6 +107,10 @@ class DTDiscreteAdaptive:
     
 
     def __gini(self, current_response_table):
+        '''
+        - p_i = |S_i| / |S|
+        - gini = 1 - \sum_i pi^2
+        '''
         
         current_ability_set = self.ability_table.loc[current_response_table.index]["ability_class"].values
         prob = np.bincount(current_ability_set) / len(current_ability_set)
@@ -123,14 +121,8 @@ class DTDiscreteAdaptive:
 
     def __split_info(self, left_prob, right_prob):
         '''
-        Compute the split info:
-
-        Parameter:
-            - left_prob (float)
-            - right_prob (float)
-        
-        Return:
-            - SI (float)
+        - p_i = |S_i| / |S|
+        - split info = \sum_i p_i * log2(p_i)
         '''
 
         return - left_prob * np.log2(np.where(left_prob > 0, left_prob, 1)) - right_prob * np.log2(np.where(right_prob > 0, right_prob, 1))
@@ -138,14 +130,7 @@ class DTDiscreteAdaptive:
 
     def __compute_IG(self, item_id, current_response_table):
         '''
-        Compute IG for each question, given current_response_table
-        
-        Parameters:
-            - item_id (str): the question to be evaluated
-            - current_response_table (pd df)
-
-        Returns:
-            - IG (float)
+        IG = current IG - expected IG conditioning on some further question
         '''
 
         if len(current_response_table) == 0:
@@ -167,14 +152,7 @@ class DTDiscreteAdaptive:
 
     def __compute_gain_ratio(self, item_id, current_response_table):
         '''
-        Compute IG and SI for each question, given current_response_table
-        
-        Parameters:
-            - item_id (str): the question to be evaluated
-            - current_response_table (pd df)
-
-        Returns:
-            - IG/SI (float)
+        gain ratio = IG / SI
         '''
 
         if len(current_response_table) == 0:
@@ -196,6 +174,9 @@ class DTDiscreteAdaptive:
     
 
     def __compute_gini(self, item_id, current_response_table):
+        '''
+        Computes the expected gini conditioning on some further question
+        '''
 
         if len(current_response_table) == 0:
             return np.inf
@@ -215,19 +196,16 @@ class DTDiscreteAdaptive:
     
 
     def __compute_time(self, item_id, current_time_table):
+        '''
+        Compute the mean / median time over the students who answered the previous questions in a certain way
+        '''
+
         return current_time_table[item_id].mean() if self.mean_or_median == "mean" else current_time_table[item_id].median()
 
 
     def __select_best_q(self, current_response_table, current_time_table):
         '''
-        Selects the best question (based on the questions answered so far)
-
-        Parameters:
-            - current_response_table (pd df): with index "student_id", column each question item_id
-        
-        Returns
-            - best_q["item_id"] (str)
-            - best_q["response_time"] (float): avg response time (can be changed into avg over the students that satisfy current_response_table)
+        Select the best question given the previous questions and responses
         '''
 
         if current_response_table.empty:
@@ -264,15 +242,20 @@ class DTDiscreteAdaptive:
         best_q_response_time = current_time_table[best_q_id].mean() if self.mean_or_median == "mean" else current_time_table[best_q_id].median()
 
         return best_q_id, best_q_response_time
+    
 
+    def __compute_ability(self, current_response_table):
+        '''
+        Compute the average of the remaining (conditional) student's ability scores
+        '''
+
+        current_final_score_col = self.ability_table.loc[current_response_table.index]["final_score"]
+        return current_final_score_col.mean() if self.mean_or_median == "mean" else current_final_score_col.median()
 
 
     def __build_dt(self, root_q):
         '''
-        Build a (sub-)tree rooted at root_q
-
-        Parameter:
-            - root_q (QuestionNode)
+        Build tree rooted at root_q
         '''
 
         if root_q is None:
@@ -317,6 +300,7 @@ class DTDiscreteAdaptive:
                                     time_taken=left_time_taken,
                                     time_remain=time_remain_left,
                                     num_qs_so_far=root_q.num_qs_so_far+1,
+                                    ability=self.__compute_ability(current_response_table_left),
                                     current_response_table=current_response_table_left,
                                     current_time_table=current_time_table_left,
                                     left=None,
@@ -356,6 +340,7 @@ class DTDiscreteAdaptive:
                                     time_taken=right_time_taken,
                                     time_remain=time_remain_right,
                                     num_qs_so_far=root_q.num_qs_so_far+1,
+                                    ability=self.__compute_ability(current_response_table_right),
                                     current_response_table=current_response_table_right,
                                     current_time_table=current_time_table_right,
                                     left=None,
@@ -371,7 +356,7 @@ class DTDiscreteAdaptive:
 
     def train(self):
         '''
-        Train (Generate) a decision tree based on train_set
+        Build the whole decision tree and clean up the unnecessary attributes
         '''
 
         # choose the first question
@@ -384,10 +369,12 @@ class DTDiscreteAdaptive:
                                    time_taken=time_taken,
                                     time_remain=time_remain_root,
                                     num_qs_so_far=1,
+                                    ability=self.__compute_ability(self.response_table),
                                     current_response_table=self.response_table,
                                     current_time_table=self.time_table,
                                     left=None,
                                     right=None)
+
         self.__build_dt(self.root_q)
         self.__shrink_tree(self.root_q)
         self.time_table = None
@@ -396,6 +383,10 @@ class DTDiscreteAdaptive:
 
 
     def __shrink_tree(self, current_node):
+        '''
+        Remove unnecessary attributes (or else the file of the saved parameters will be huge)
+        '''
+
         if current_node is not None:
             current_node.current_response_table = None
             current_node.current_time_table = None

@@ -4,10 +4,13 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
-from dataloader import dataset_rl as dataset_dt
 
 import torch
 import torch.torch_version
+
+from dataloader import dataset_rl as dataset_dt
+from dt_d_adaptive import QuestionNode, DTDiscreteAdaptive
+# from dt_d_static import QuestionNode, DTDiscreteStatic
 from ability_level_model import RegressionModel
 
 MAX_QUESTIONS = 15
@@ -19,16 +22,7 @@ NUM_QUESTIONS = 244
 
 def generate_trajectories(model, useful_tables, device):
     '''
-    Generate and save the trajectory of questions answered by a student, each trajectory has the shape (244, 4) and looks like 
-    [ [ "discrimination", "difficulty", "response", "response_time" ],      # q110      note that the response time should be the one in the val set not the avg time saved in the dt
-      [ "discrimination", "difficulty", "response", "response_time" ],      # q231
-        ...
-      [ -1, -1, -1, -1]    # invalid q
-    ]
-
-    Parameter:
-        - model 
-        - student_id (int)
+    W.r.t. the decision tree, for each student, record the question information (dicrimination, difficulty, repsonse, time) for each question answered
     '''
 
     [discrimination_table, difficulty_table, response_table, time_table, stu_ids] = [useful_tables[i] for i in range(5)]
@@ -68,9 +62,57 @@ def generate_trajectories(model, useful_tables, device):
     return trajectories
 
 
-def eval_dt(dt_model, val_or_test: str):
+
+def get_ability_estimates_itself(model, useful_tables):
+    '''
+    Estimate the ability by itself
+    '''
+
+    [_, _, response_table, time_table, stu_ids] = [useful_tables[i] for i in range(5)]
+
+    N = len(response_table)
+    ability_estimates = list()
+
+    for i in range(N):
+        time_remain = MAX_TIME
+        num_qs = 0
+        current_q = model.root_q
+
+        while current_q is not None:
+            current_q_id = current_q.item_id
+
+            current_q_response = response_table.loc[stu_ids[i], current_q_id]
+            current_q_response_time = time_table.loc[stu_ids[i], current_q_id]
+
+            num_qs += 1
+            time_remain -= current_q_response_time
+            if time_remain < 0 or num_qs > MAX_QUESTIONS:
+                ability_estimates.append(current_q.ability)
+                break
+
+            if current_q_response == 0:
+                if current_q.left is None:
+                    ability_estimates.append(current_q.ability)
+                    break
+                current_q = current_q.left
+            else:
+                if current_q.right is None:
+                    ability_estimates.append(current_q.ability)
+                    break
+                current_q = current_q.right
+    
+    return np.array(ability_estimates)
+    
+
+
+def eval_dt(dt_model, val_or_test: str, eval_model: str):
+    '''
+    Compute the RMSE between the ability estimate and the true ability, where the ability estimation is either using the ml model or by itself
+    '''
+
     _, val_set, test_set = dataset_dt()
     assert val_or_test in ["val", "test"]
+    assert eval_model in ["self", "ml"]
     data_set = val_set if val_or_test == "val" else test_set
 
     useful_tables = [data_set.groupby("item_id")["discrimination"].first(), 
@@ -89,12 +131,16 @@ def eval_dt(dt_model, val_or_test: str):
     reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True, map_location=device))
     reg_model.eval()
 
-    # get students' answers
-    trajectories = generate_trajectories(dt_model, useful_tables, device)
-
     # ability estimate
-    with torch.no_grad():
-        RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5        # batched data doesn't work
+    if eval_model == "ml":
+        trajectories = generate_trajectories(dt_model, useful_tables, device)
+        with torch.no_grad():
+            RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5        # batched data doesn't work
+            return RMSE
+    
+    else:
+        ability_estimates = get_ability_estimates_itself(dt_model, useful_tables)
+        RMSE = (np.sum((ability_estimates - abilities) ** 2) / N) ** 0.5
         return RMSE
 
 

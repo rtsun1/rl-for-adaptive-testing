@@ -4,6 +4,8 @@ __pycache__
 
 data
 test.py
+# no longer maintained since the performances are similar
+dt_d_static.py
 
 # cuda yaml
 environment_cuda.yml
