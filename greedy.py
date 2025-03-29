@@ -89,7 +89,7 @@ def greedy_fi(args: Args):
             theta = observation["theta"][0]
             G += reward
             # Log
-            print(action, observation, reward)
+            # print(action, observation, reward)
             
             episode_over = terminated or truncated
         

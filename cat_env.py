@@ -44,6 +44,7 @@ class CATEnv(gym.Env):
         # State variables
         self.time_taken_s = 0
         self.theta = self.init_theta
+        self.prev_theta = self.init_theta
         self.true_theta = 0  # init in reset
         self.sid = None  # active student id
         self.answered = set()  # items already answered
@@ -97,7 +98,7 @@ class CATEnv(gym.Env):
                 1
             ),  # NOTE: reshaping to (1,) from () to make it consistent with the Box space
             "time_left": np.array(
-                self.time_limit_s - self.time_taken_s, dtype=np.float32
+                (self.time_limit_s - self.time_taken_s)/(self.time_limit_s), dtype=np.float32  # scaling time [0,1]
             ).reshape(1),
         }
 
@@ -108,6 +109,7 @@ class CATEnv(gym.Env):
         return {
             "student_id": self.sid, 
             "theta": self.theta,
+            "prev_theta": self.prev_theta,
             "already_asked": self.action_already_asked,
             "true_theta": self.true_theta,
             "average_times": self.average_times,
@@ -157,6 +159,7 @@ class CATEnv(gym.Env):
         # Reset the state
         self.time_taken_s = 0
         self.theta = self.init_theta
+        self.prev_theta = self.init_theta
         self.true_theta = self._get_true_theta()  # NOTE: probably takes the most time
         self.action_already_asked = False  # whether the last action was already asked
         self.answered = set()  # items already answered
@@ -217,7 +220,8 @@ class CATEnv(gym.Env):
         if self.time_taken_s > self.time_limit_s:
             self.time_taken_s = self.time_limit_s  # cap the time to be within the observation space
             # Multiply by 50 to scale the reward relative to -1 reward for answering the same question
-            reward = 50 * - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
+            # reward = 50 * - (self.true_theta - self.theta) ** 2  # NOTE: reward is the negative of the squared error in the ability estimate
+            reward = 0
             return self._get_obs(), reward, True, False, self._get_info()  # return the error in the ability estimate (from the entire dataset vs the student's responses)
         
         # Otherwise, update the state
@@ -227,6 +231,7 @@ class CATEnv(gym.Env):
         self.difficulty.append(difficulty)
 
         # Calculate the EAP ability
+        self.prev_theta = self.theta
         self.theta, _ = calculate_eap_ability(
             self.responses, self.discrimination, self.difficulty, self.theta_range
         )

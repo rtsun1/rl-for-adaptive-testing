@@ -36,7 +36,7 @@ class Args:
     """if toggled, this experiment will be tracked with Weights and Biases"""
     wandb_project_name: str = "CAT_dqn"
     """the wandb's project name"""
-    wandb_entity: str = "tonyinbio"
+    wandb_entity: str = "aarondom-university-of-alberta"
     """the entity (team) of wandb's project"""
     save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
@@ -69,13 +69,13 @@ class Args:
     """the number of parallel game environments"""
     buffer_size: int = 10000
     """the replay memory buffer size"""
-    gamma: float = 0.99
+    gamma: float = 0.9
     """the discount factor gamma"""
     tau: float = 1.0
     """the target network update rate"""
-    target_network_frequency: int = 500
+    target_network_frequency: int = 10000
     """the timesteps it takes to update the target network"""
-    batch_size: int = 128
+    batch_size: int = 1024
     """the batch size of sample from the reply memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
@@ -91,7 +91,7 @@ class Args:
     # Evaluation specific arguments
     eval_episodes: int = 100
     """the number of episodes to evaluate"""
-    eval_epsilon: float = 0.05
+    eval_epsilon: float = 0.0
     """the epsilon for evaluation"""
     eval_frequency: int = 50000
 
@@ -149,11 +149,15 @@ class QNetwork(nn.Module):
         # print("DEBUG action_space length: ", env.action_space.n)
 
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+            nn.Linear(np.array(env.single_observation_space.shape).prod(), 128),
             nn.ReLU(),
-            nn.Linear(120, 240),
+            nn.Linear(128, 256),
             nn.ReLU(),
-            nn.Linear(240, env.single_action_space.n),
+            nn.Linear(256, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, env.single_action_space.n),
         )
 
     def forward(self, x):
@@ -208,7 +212,7 @@ if __name__ == "__main__":
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
+    # device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
     print("Using Device : ", device)
 
     # env setup
@@ -273,7 +277,7 @@ if __name__ == "__main__":
             global_step,
         )
 
-        # print("DEBUG obs : ", obs)
+        print("DEBUG obs : ", obs, end=" ")
         # print("DEBUG flattened_obs : ", flattened_obs)
 
         if random.random() < epsilon:
@@ -282,7 +286,7 @@ if __name__ == "__main__":
                 actions = envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
             else:
                 actions = envs.action_space.sample()
-            # print("DEBUG : global step ", global_step, " random ", actions)
+            print("DEBUG : global step ", global_step, " random ", actions, end=" ")
         else:
             start_forward_time = time.time()
 
@@ -290,7 +294,7 @@ if __name__ == "__main__":
             if args.mask_answered:
                 mask = get_mask(q_values.shape, infos["answered"])  # masking
                 q_values[np.logical_not(mask)] = -np.inf
-            # print("DEBUG q_values  : ", q_values)
+            # print("DEBUG q_values  : ", q_values,  end=" ")
             actions = (
                 torch.argmax(
                     q_values, dim=1
@@ -300,7 +304,7 @@ if __name__ == "__main__":
             )
 
             forward_times.append(time.time() - start_forward_time)
-            # print("DEBUG : global step ", global_step, " q-network ", actions)
+            print("DEBUG : global step ", global_step, " q-network ", actions,  end=" ")
 
         # print(
         #     "DEBUG actions : ",
@@ -314,7 +318,8 @@ if __name__ == "__main__":
         start_env_time = time.time()
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         env_times.append(time.time() - start_env_time)
-        # print(rewards)
+        print("DEBUG : reward ", rewards,  end=" ")
+        # print("DEBUG : next_obs ", next_obs, end=" ")
         # Get done envs
         done_mask = np.logical_or(terminations, truncations)
 
@@ -342,6 +347,8 @@ if __name__ == "__main__":
         if done_mask.any():
             start_reset_time = time.time()
 
+            print("DEBUG : End of episode")
+
             obs, _ = envs.reset(options={"mask": done_mask})
 
             reset_times.append(time.time() - start_reset_time)
@@ -355,11 +362,16 @@ if __name__ == "__main__":
 
                 data = replay_buffer.sample(args.batch_size)
                 with torch.no_grad():
+                    # if args.mask_answered:  # important: max a' Q(S',a') needs to be masked aswell!
+                    #     next_q_values = target_network(data.next_observations)
+                    #     # mask = get_mask(next_q_values.shape, data.infos["answered"]) # Cannot mask just yet
+                    #     # next_q_values[np.logical_not(mask)] = -np.inf
+                    #     target_max, _ = next_q_values.max(dim=1)
+                    # else:
                     target_max, _ = target_network(data.next_observations).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (
-                        1 - data.dones.flatten()
-                    )
+                    td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
                 old_val = q_network(data.observations).gather(1, data.actions).squeeze()
+                # print("DEBUG : td_target ", td_target, " old val ", old_val)
                 loss = F.mse_loss(td_target, old_val)
 
                 if global_step % 100 == 0:
@@ -373,6 +385,8 @@ if __name__ == "__main__":
                         int(global_step / (time.time() - start_time)),
                         global_step,
                     )
+
+                # print("DEBUG : loss ", loss)
 
                 # optimize the model
                 optimizer.zero_grad()
