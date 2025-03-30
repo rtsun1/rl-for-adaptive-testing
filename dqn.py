@@ -239,15 +239,11 @@ class QNetwork(nn.Module):
         else:
             input_size = np.array(env.single_observation_space.shape).prod()
         self.network = nn.Sequential(
-            nn.Linear(input_size, 128),
+            nn.Linear(input_size, 120),
             nn.ReLU(),
-            nn.Linear(128, 256),
+            nn.Linear(120, 240),
             nn.ReLU(),
-            nn.Linear(256, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1024),
-            nn.ReLU(),
-            nn.Linear(1024, env.single_action_space.n),
+            nn.Linear(240, env.single_action_space.n),
         )
 
     def forward(self, x):
@@ -305,7 +301,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-    # device = torch.device("mps" if torch.mps.is_available() and args.cuda else "cpu")  # cuda and mps are taken to mean user wants to use the gpu
+    device = torch.device("mps" if torch.mps.is_available() and args.cuda else device)  # cuda and mps are taken to mean user wants to use the gpu
     print("Using Device : ", device)
 
     # env setup
