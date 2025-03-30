@@ -148,10 +148,10 @@ def make_env(
             env = AnsweredVectorObservation(env)
         elif detailed_answered:
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
-        if fisher_rewards:
-            env = FisherInfoRewards(env, dataset=dataset)
         if ml_theta:
             env = MLThetaObservationAndInfo(env, dataset=dataset, device=device)
+        if fisher_rewards:
+            env = FisherInfoRewards(env, dataset=dataset)
         # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead. Also messes up new evaluate implementation.
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
