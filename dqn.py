@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation, MLThetaObservationAndInfo
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation, MLThetaObservationAndInfo, UncertaintyVectorObservation
 
 from typing import Callable
 from tqdm import tqdm
@@ -61,6 +61,8 @@ class Args:
     """the id of the environment"""
     include_answered: bool = False
     """whether to include answered questions as a bit vector in the observation"""
+    include_uncertainty: bool = False
+    """whether to include uncertainty in ability estimate in the observation"""
     detailed_answered: bool = False
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
     mask_answered: bool = False
@@ -82,7 +84,7 @@ class Args:
     """the number of parallel game environments"""
     buffer_size: int = 10000
     """the replay memory buffer size"""
-    gamma: float = 0.9
+    gamma: float = 1
     """the discount factor gamma"""
     tau: float = 1.0
     """the target network update rate"""
@@ -108,7 +110,7 @@ class Args:
     # Evaluation specific arguments
     eval_episodes: int = 100
     """the number of episodes to evaluate"""
-    eval_epsilon: float = 0.0
+    eval_epsilon: float = 0.05
     """the epsilon for evaluation"""
     eval_frequency: int = 50000
 
@@ -137,7 +139,7 @@ def get_mask(
 
 def make_env(
         env_id, seed, dataset, device,
-        mask_answered, include_answered, detailed_answered, fisher_rewards, ml_theta,
+        mask_answered, include_answered, include_uncertainty, detailed_answered, fisher_rewards, ml_theta,
         time_limit_s=60 * 15
     ):
     def thunk():
@@ -146,6 +148,8 @@ def make_env(
             raise ValueError("You are including both binary answered and detailed answered. This is likely a mistake.")
         if include_answered:
             env = AnsweredVectorObservation(env)
+        if include_uncertainty:
+            env = UncertaintyVectorObservation(env, dataset=dataset) # NOTE : don't hard code theta range
         elif detailed_answered:
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if fisher_rewards:
@@ -311,6 +315,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             "device": device,
             "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
+            "include_uncertainty": args.include_uncertainty,
             "detailed_answered": args.detailed_answered,
             "fisher_rewards": args.reward_function == "fisher",
             "ml_theta": args.theta_state == "ml",
@@ -427,8 +432,6 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             global_step,
         )
 
-        print("DEBUG obs : ", obs, end=" ")
-        # print("DEBUG flattened_obs : ", flattened_obs)
 
         start_forward_time = time.time()
         actions = agent.get_action(obs, infos, epsilon=epsilon)
@@ -447,8 +450,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         start_env_time = time.time()
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         env_times.append(time.time() - start_env_time)
-        print("DEBUG : reward ", rewards,  end=" ")
-        # print("DEBUG : next_obs ", next_obs, end=" ")
+
         # Get done envs
         done_mask = np.logical_or(terminations, truncations)
 

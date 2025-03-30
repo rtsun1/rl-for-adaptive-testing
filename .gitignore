@@ -19,10 +19,7 @@ wandb/*
 out/*
 /graphs
 data/test_data.csv
-<<<<<<< HEAD
 logs/
-=======
 
 # optuna sqlite
 studies.db
->>>>>>> da99df0f376eb7d83f1e0bec69621aab4797f6e4

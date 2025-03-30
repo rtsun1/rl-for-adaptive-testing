@@ -4,7 +4,7 @@ from gymnasium import ActionWrapper, ObservationWrapper, RewardWrapper, Wrapper
 from gymnasium.spaces import Box, Discrete
 
 from cat_env import CATEnv
-from IRT import batch_fisher_information
+from IRT import batch_fisher_information, calculate_eap_ability
 from ability_level_model import RegressionModel
 import torch
 
@@ -194,6 +194,67 @@ class DetailedAnsweredVectorObservation(Wrapper):
 
         return self._add_answered(obs), reward, terminated, truncated, info
     
+
+class UncertaintyVectorObservation(Wrapper):
+    """
+    Add to the observation space a scalar for the standard error 
+    in the ability estimate calculated by IRT function
+    """
+    def __init__(self, env, dataset, theta_lb=-4.0, theta_ub=4.0):
+        super().__init__(env)
+        self.dataset = dataset
+        self.answered = set()
+        self.student = None
+        
+        # To calculate ability estimate and uncertainty
+        self.theta_range = (theta_lb, theta_ub)
+        self.discrimination = []
+        self.difficulty = []
+        self.response = []
+
+        # Define observation space
+        self.observation_space = gym.spaces.Dict(
+            {
+                "uncertainty": gym.spaces.Box(
+                    low=0, # 0 standard error is the lower limit
+                    high=np.inf, # Standard error -> inf theoretically
+                    shape=(1,),
+                    dtype=np.float32
+                ), 
+                **env.observation_space
+            }
+        )
+
+    def _add_uncertainty(self, obs):
+        _, uncertainty = calculate_eap_ability(self.response, self.discrimination, self.difficulty, self.theta_range)
+        obs["uncertainty"] = uncertainty
+        return obs
+
+    def reset(self, seed=None, options=None):
+        obs, info = super().reset(seed=seed, options=options)
+        self.answered = info["answered"]
+        self.student = info["sid_idx"] * self.action_space.n
+
+        self.discrimination = []
+        self.difficulty = []
+        self.response = []
+
+        return self._add_uncertainty(obs), info
+    
+    def step(self, action):
+        if action not in self.answered:
+            # Fill in the discrimination, difficulty and resposnse
+            self.discrimination.append(self.dataset.iloc[action]["discrimination"])
+            self.difficulty.append(self.dataset.iloc[action]["difficulty"])
+            self.response.append(self.dataset.iloc[self.student + action]["response"])
+
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        self.answered = info["answered"]
+
+        return self._add_uncertainty(obs), reward, terminated, truncated, info
+
+    
 class RecordActions(Wrapper):
     def __init__(self, env):
         super().__init__(env)
@@ -281,6 +342,24 @@ if __name__ == "__main__":
     # obs, reward, terminated, truncated, info = env.step(1)
     # print(obs)
     # env.close()
+
+    # UncertaintyVectorObservation
+    env = gym.make("CAT-v0", dataset=val)
+    env = UncertaintyVectorObservation(env, dataset=val)
+    obs, info = env.reset()
+    print(obs)
+    obs, reward, terminated, truncated, info = env.step(1)
+    print(obs)
+    obs, reward, terminated, truncated, info = env.step(2)
+    print(obs)
+    obs, reward, terminated, truncated, info = env.step(5)
+    print(obs)
+    obs, reward, terminated, truncated, info = env.step(1)
+    print(obs)
+    obs, reward, terminated, truncated, info = env.step(10)
+    print(obs)
+    env.close()
+
 
     # # RecordActions
     # env = gym.make("CAT-v0", dataset=val)
