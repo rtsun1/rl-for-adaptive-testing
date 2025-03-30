@@ -6,7 +6,7 @@ def sankey(datasets):
     all_sequences = []
     for dataset in datasets:
         all_sequences.extend(dataset["histories"].item())
-    fig = sankey_from_action_sequences(all_sequences, max_depth=5)
+    fig = sankey_from_action_sequences(all_sequences,min_frequency=1, max_depth=5)
     fig.show()
     
 def sankey_from_action_sequences(sequences, min_frequency=1, max_depth=None):
@@ -63,7 +63,7 @@ def sankey_from_action_sequences(sequences, min_frequency=1, max_depth=None):
     return fig
 
 from pprint import pprint
-datasets = [np.load("runs/CAT-v0__dqn__42__1741657040/results.npz", allow_pickle=True)]
+datasets = [np.load("runs/CAT-v0__dqn__42__1742417085/results.npz", allow_pickle=True)]
 
 data = datasets[0]["histories"].item()
 counts = {}
