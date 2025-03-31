@@ -257,8 +257,8 @@ class SingleActionAgent(MaskAgent):
         x = torch.cat((x, one_hot.to(self.device)), dim=2)  # (batch_size, n_actions, n_features + n_actions)
         x = x.to(self.device)
 
-        q_values = self.target(x.to(self.device)).squeeze(2)
-        mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
+        q_values = self.target(x).squeeze(2)
+        mask = obs["answered"].to(bool)  # masking, torch tensor expects bool
         q_values[mask] = -np.inf
 
         return q_values
@@ -268,10 +268,10 @@ class SingleActionAgent(MaskAgent):
         one_hot = one_hot.unsqueeze(0)  # (1, n_actions, n_actions)
         one_hot = one_hot.repeat(obs["main"].shape[0], 1, 1)  # (batch_size, n_actions, n_actions)
         x = torch.Tensor(obs["main"]).unsqueeze(1).expand(-1, self.envs.single_action_space.n, -1)  # (batch_size, n_actions, n_features)
-        x = torch.cat((x, one_hot), dim=2)  # (batch_size, n_actions, n_features + n_actions)
+        x = torch.cat((x, one_hot.to(self.device)), dim=2)  # (batch_size, n_actions, n_features + n_actions)
         x = x.to(self.device)
 
-        q_values = self.model(x.to(self.device)).squeeze(2)
+        q_values = self.model(x).squeeze(2)
         return q_values
 
 # TODO : Change QNetwork according to paper spec
@@ -420,7 +420,24 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         envs.single_action_space, gym.spaces.Discrete
     ), "only discrete action space is supported"
 
-    q_network = QNetwork(envs, args.mask_answered).to(device)
+    if args.single_value_network:
+        assert args.mask_answered, "Single action network only works with masking"
+
+        q_network = SingleActionNetwork(envs, args.mask_answered).to(device)
+        target_network = SingleActionNetwork(envs, args.mask_answered).to(device)
+        target_network.load_state_dict(q_network.state_dict())
+    else:
+        q_network = QNetwork(envs, args.mask_answered).to(device)
+        target_network = QNetwork(envs, args.mask_answered).to(device)
+        target_network.load_state_dict(q_network.state_dict())
+
+    if args.single_value_network:
+        agent = SingleActionAgent(model=q_network, target=target_network, device=device, envs=envs)
+    elif args.mask_answered:
+        agent = MaskAgent(model=q_network, target=target_network, device=device, envs=envs)
+    else:
+        agent = Agent(model=q_network, target=target_network, device=device, envs=envs)
+
     if args.optimizer == "adam":
         optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     elif args.optimizer == "adamw":
@@ -439,16 +456,6 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             lr_scheduler = None
         case _:
             raise ValueError("Only ReduceLROnPlateau, IncreaseLROnPlateau, CosineAnnealing, and Constant are supported as lr_schedulers")
-    target_network = QNetwork(envs, args.mask_answered).to(device)
-    target_network.load_state_dict(q_network.state_dict())
-
-    if args.mask_answered:
-        agent = MaskAgent(model=q_network, target=target_network, device=device, envs=envs)
-    else:
-        agent = Agent(model=q_network, target=target_network, device=device, envs=envs)
-    if args.single_value_network:
-        assert args.mask_answered, "Single action network only works with masking"
-        agent = SingleActionAgent(model=SingleActionNetwork(envs, args.mask_answered).to(device), target=target_network, device=device, envs=envs)
 
     # print("DEBUG args.buffer_size : ", args.buffer_size)
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
