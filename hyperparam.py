@@ -24,9 +24,9 @@ import os
 import numpy as np
 
 N_TRIALS = 10_000  # max num of trials
-N_STARTUP_TRIALS = 100  # num of random sampling trials before using TPE sampler
-N_EVALUATIONS = 6  # num of evaluations per trial
-N_TIMESTEPS = 1_000_000  # num of steps per trial
+N_STARTUP_TRIALS = 5  # num of random sampling trials before using TPE sampler
+N_EVALUATIONS = 4  # num of evaluations per trial
+N_TIMESTEPS = 500_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
 N_EVAL_EPISODES = 500  # num of episodes used for evaluating the agent
 
