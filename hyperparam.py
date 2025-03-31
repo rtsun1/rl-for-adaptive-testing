@@ -48,13 +48,18 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     mask_answered = True
     reward_function = "fisher"
     # reward_function = trial.suggest_categorical("reward_function", ["sparse", "fisher"])
-    theta_state = trial.suggest_categorical("theta_state", ["irt", "ml"])  # TODO: try true theta as well 
+    # theta_state = trial.suggest_categorical("theta_state", ["irt", "ml"])  # TODO: try true theta as well 
+    theta_state = "ml"
 
     # === DQN hyperparameters: ===
-    loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
-    optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
-    lr_scheduler = trial.suggest_categorical("lr_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"])
-    e_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
+    # loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
+    loss_function = "mse"
+    # optimizer = trial.suggest_categorical("optimizer", ["adam", "adamw"])
+    optimizer = "adamw"
+    lr_scheduler = "CosineAnnealing"
+    # lr_scheduler = trial.suggest_categorical("lr_scheduler", ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"])
+    # e_scheduler = trial.suggest_categorical("epsilon_decay_scheduler", ["linear", "exponential"])
+    e_scheduler = "exponential"
     num_envs = 1
     buffer_size: int = trial.suggest_int("buffer_size", 5000, 500_000, log=True)
     tau = 1.0

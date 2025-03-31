@@ -65,8 +65,10 @@ class Args:
     """whether to include uncertainty in ability estimate in the observation"""
     detailed_answered: bool = False
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
-    mask_answered: bool = False
+    mask_answered: bool = True
     """whether to mask actions that are already answered to -np.inf"""
+    single_value_network: bool = False
+    """whether to use a single value network for all actions"""
     reward_function: str = "sparse"
     """reward function to use. one of ["sparse", "fisher"]"""
     theta_state: str = "irt"
@@ -225,6 +227,53 @@ class MaskAgent(Agent):
     def get_values(self, obs):
         return self.model(obs["main"])
 
+class SingleActionAgent(MaskAgent):
+    # NOTE: Assumes always masking
+    def get_action(self, obs, infos, epsilon=0.05):
+        if random.random() < epsilon:
+            mask = np.logical_not(obs["answered"]).astype(np.int8)  # masking, gymnasium expects int8
+            action = self.envs.action_space.sample(mask=tuple(mask[i] for i in range(mask.shape[0])))
+        else:
+            one_hot = torch.eye(self.envs.single_action_space.n)  # (n_actions, n_actions)
+            one_hot = one_hot.unsqueeze(0)  # (1, n_actions, n_actions)
+            one_hot = one_hot.repeat(obs["main"].shape[0], 1, 1)  # (batch_size, n_actions, n_actions)
+            x = torch.Tensor(obs["main"]).unsqueeze(1).expand(-1, self.envs.single_action_space.n, -1)  # (batch_size, n_actions, n_features)
+            x = torch.cat((x, one_hot), dim=2)  # (batch_size, n_actions, n_features + n_actions)
+            x = x.to(self.device)
+
+            q_values = self.model(x.to(self.device)).squeeze(2)
+            mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
+            q_values[mask] = -np.inf
+            action = torch.argmax(q_values, dim=1).cpu().numpy()  # first dim is num envs. second dim is num actions 
+
+        return action
+    
+    # TODO: Double check that this works correctly with training updates
+    def get_target_values(self, obs):
+        one_hot = torch.eye(self.envs.single_action_space.n)  # (n_actions, n_actions)
+        one_hot = one_hot.unsqueeze(0)  # (1, n_actions, n_actions)
+        one_hot = one_hot.repeat(obs["main"].shape[0], 1, 1)  # (batch_size, n_actions, n_actions)
+        x = torch.Tensor(obs["main"]).unsqueeze(1).expand(-1, self.envs.single_action_space.n, -1)  # (batch_size, n_actions, n_features)
+        x = torch.cat((x, one_hot.to(self.device)), dim=2)  # (batch_size, n_actions, n_features + n_actions)
+        x = x.to(self.device)
+
+        q_values = self.target(x.to(self.device)).squeeze(2)
+        mask = obs["answered"].astype(bool)  # masking, torch tensor expects bool
+        q_values[mask] = -np.inf
+
+        return q_values
+    
+    def get_values(self, obs):
+        one_hot = torch.eye(self.envs.single_action_space.n)  # (n_actions, n_actions)
+        one_hot = one_hot.unsqueeze(0)  # (1, n_actions, n_actions)
+        one_hot = one_hot.repeat(obs["main"].shape[0], 1, 1)  # (batch_size, n_actions, n_actions)
+        x = torch.Tensor(obs["main"]).unsqueeze(1).expand(-1, self.envs.single_action_space.n, -1)  # (batch_size, n_actions, n_features)
+        x = torch.cat((x, one_hot), dim=2)  # (batch_size, n_actions, n_features + n_actions)
+        x = x.to(self.device)
+
+        q_values = self.model(x.to(self.device)).squeeze(2)
+        return q_values
+
 # TODO : Change QNetwork according to paper spec
 # ALGO LOGIC: initialize agent here:
 class QNetwork(nn.Module):
@@ -249,8 +298,36 @@ class QNetwork(nn.Module):
     def forward(self, x):
         return self.network(
             x
-        )  # TODO: implement masking here to allow for differentiable masking
+        )
 
+class SingleActionNetwork(nn.Module):
+    def __init__(self, env, mask_answered=False):
+        super().__init__()
+
+        # print("DEBUG single_observation_space length: ", len(env.single_observation_space))
+        # print("DEBUG action_space length: ", env.action_space.n)
+
+        if mask_answered:
+            input_size = np.array(env.single_observation_space["main"].shape).prod()
+        else:
+            input_size = np.array(env.single_observation_space.shape).prod()
+        input_size += env.single_action_space.n  # add action space size to input size
+        # e.g. + [1.2 5.4 1 0 0 0 0 0 0 0 0] for action 4
+        # [2.4 5.4 1 0]
+        # [2.4 5.4 0 1]
+        self.network = nn.Sequential(
+            nn.Linear(input_size, 120),
+            nn.ReLU(),
+            nn.Linear(120, 240),
+            nn.ReLU(),
+            nn.Linear(240, 1),
+        )
+
+    def forward(self, x):
+        return self.network(
+            x
+        )
+    
 # SCHEDULER :  for epsilon (exploration)
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
@@ -369,6 +446,9 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         agent = MaskAgent(model=q_network, target=target_network, device=device, envs=envs)
     else:
         agent = Agent(model=q_network, target=target_network, device=device, envs=envs)
+    if args.single_value_network:
+        assert args.mask_answered, "Single action network only works with masking"
+        agent = SingleActionAgent(model=SingleActionNetwork(envs, args.mask_answered).to(device), target=target_network, device=device, envs=envs)
 
     # print("DEBUG args.buffer_size : ", args.buffer_size)
     # print("DEBUG env.single_observation_space : ", env.single_observation_space)
