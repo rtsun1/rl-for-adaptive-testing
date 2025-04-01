@@ -50,6 +50,7 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
     # reward_function = trial.suggest_categorical("reward_function", ["sparse", "fisher"])
     # theta_state = trial.suggest_categorical("theta_state", ["irt", "ml"])  # TODO: try true theta as well 
     theta_state = "ml"
+    single_value_network = True
 
     # === DQN hyperparameters: ===
     # loss_function = trial.suggest_categorical("loss_function", ["l1", "mse", "huber"])
@@ -87,6 +88,7 @@ def sample_params(trial: optuna.Trial) -> Dict[str, Any]:
         "optimizer": optimizer,
         "lr_scheduler": lr_scheduler,
         "e_scheduler": e_scheduler,
+        "single_value_network": single_value_network,
         # "net_arch": net,
         # "include_answered": include_answered,
         # "detailed_answered": detailed_answered,
@@ -153,13 +155,14 @@ def objective(trial: optuna.Trial) -> float:
     kwargs, dict_args = sample_params(trial)
     # Create the args used to build and train the model.
     args = Args(**kwargs)
+    args.exp_name = "dqn_single_action"
     args.cuda = CUDA
     args.env_id = ENV_ID
     args.total_timesteps = N_TIMESTEPS
     args.eval_epsilon = EVAL_EPSILON
     args.eval_episodes = N_EVAL_EPISODES
     args.eval_frequency = EVAL_FREQ
-    args.seed = np.random.randint(2 ** 32 - 1)
+    args.seed = np.random.randint(2 ** 32/2)
     # Turn off logging in a trial
     args.verbose = False
     args.track = True
@@ -195,7 +198,7 @@ if __name__ == "__main__":
 
     # optuna.delete_study(study_name="dqn_masking", storage="sqlite:///studies.db")
     study = optuna.create_study(
-        study_name="dqn_masking", 
+        study_name="dqn_single_action", 
         storage="sqlite:///studies.db",
         load_if_exists=True,
         sampler=sampler, pruner=pruner, direction="minimize"
