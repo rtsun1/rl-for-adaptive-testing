@@ -7,9 +7,6 @@ test.py
 # no longer maintained since the performances are similar
 dt_d_static.py
 
-# cuda yaml
-environment_cuda.yml
-
 # too large
 data
 pisa_data.csv
@@ -20,6 +17,7 @@ wandb/*
 out/*
 /graphs
 data/test_data.csv
+logs/
 
 # optuna sqlite
 studies.db
