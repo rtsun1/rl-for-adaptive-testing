@@ -55,11 +55,53 @@ class FisherInfoRewards(Wrapper):
 
         return obs, reward, terminated, truncated, info
 
+class SparseMSERewards(Wrapper):
+    """
+    Reward wrapper that returns the Fisher Information of the student's ability estimate
+    divided by the response time.
+    """
+    def __init__(self, env, dataset, reward_std=0.1182895876004875, reward_mean=0.17804979690015083):  # these are the stats of FI at theta=0 for train set
+        super().__init__(env)
+        self.reward_std = reward_std
+        self.reward_mean = reward_mean
+        self.answered = set()  # a reference to CATEnv's answered so we can check it before calling step
+        self.dataset = dataset
+        self.student = None
+        self.theta = None
+        self.MSE_last = None
+
+    def reset(self, seed = None, options = None):
+        obs, info = super().reset(seed=seed, options=options)
+        self.theta = float(info["theta"])  # float to ensure this is not a ref
+        self.MSE_last = 0.0
+
+        return obs, info
+    
+    def step(self, action):
+        # Check if the question has already been answered
+        already_answered = action in self.answered
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        if terminated or truncated or already_answered:
+            reward = 0  # no reward for terminal states
+        if terminated or truncated or already_answered:
+            return obs, reward, terminated, truncated, info
+        
+        # Calculate Squared Error
+        self.theta = float(info["theta"])
+        self.true_theta = float(info["true_theta"])
+        MSE_curr = (self.theta - self.true_theta) ** 2
+
+        reward = (self.MSE_last - MSE_curr) * 10
+        self.MSE_last = MSE_curr
+
+        return obs, reward, terminated, truncated, info
+
 class MLThetaObservationAndInfo(Wrapper):
     def __init__(self, env, dataset, device="cpu"):
         super().__init__(env)
         self.reg_model = RegressionModel().to(device)
-        self.reg_model.load_state_dict(torch.load("AL_model_weights/val_loss_best.pt", weights_only=True, map_location=device))
+        self.reg_model.load_state_dict(torch.load("ml_weights/best_model.pt", weights_only=True, map_location=device))
         self.dataset = dataset
         self.n_items = env.action_space.n
         self.device = device
@@ -84,8 +126,47 @@ class MLThetaObservationAndInfo(Wrapper):
         curr_state = torch.ones_like(curr_data) * -1
         curr_state[list(answered)] = curr_data[list(answered)]
         curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
-        estimated_ability_level = self.reg_model(curr_state)
-        theta = estimated_ability_level[0].item()
+        estimated_ability_level = self.reg_model(curr_state)[0].item()
+
+        obs["theta"] = estimated_ability_level
+        info["theta"] = estimated_ability_level
+
+        return obs, reward, terminated, truncated, info
+    
+class WeightedMLThetaObservationAndInfo(Wrapper):
+    def __init__(self, env, dataset, device="cpu"):
+        super().__init__(env)
+        self.reg_model = RegressionModel().to(device)
+        self.reg_model.load_state_dict(torch.load("ml_weights/best_model.pt", weights_only=True, map_location=device))
+        self.dataset = dataset
+        self.n_items = env.action_space.n
+        self.device = device
+    
+    def reset(self, seed = None, options = None):
+        obs, info = super().reset(seed=seed, options=options)
+
+        self.sid_idx = info["sid_idx"]
+        start = self.sid_idx * self.n_items
+        stop = (self.sid_idx + 1) * self.n_items
+        self.torch_dataset = self.dataset[start:stop]
+        self.torch_dataset = torch.tensor(self.torch_dataset[["discrimination", "difficulty", "response", "response_time"]].values).float().to(self.device)
+
+        return obs, info  # leave default theta at reset
+    
+    def step(self, action):
+        obs, reward, terminated, truncated, info = self.env.step(action)
+
+        answered = info["answered"]  # include the question just asked for the model
+
+        curr_data = self.torch_dataset
+        curr_state = torch.ones_like(curr_data) * -1
+        curr_state[list(answered)] = curr_data[list(answered)]
+        curr_state = curr_state.reshape((1, curr_state.shape[0], curr_state.shape[1]))
+        estimated_ability_level = self.reg_model(curr_state)[0].item()
+
+        weight_func = (20 + len(list(answered))) / 90
+        weight_model = 1 - weight_func
+        theta = weight_model * estimated_ability_level + weight_func * obs["theta"].item()
 
         obs["theta"] = theta
         info["theta"] = theta

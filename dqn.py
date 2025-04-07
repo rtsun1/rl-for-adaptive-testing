@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, MaskObservation, MLThetaObservationAndInfo, UncertaintyVectorObservation
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, SparseMSERewards, MaskObservation, MLThetaObservationAndInfo, UncertaintyVectorObservation
 
 from typing import Callable
 from tqdm import tqdm
@@ -68,7 +68,7 @@ class Args:
     mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
     reward_function: str = "sparse"
-    """reward function to use. one of ["sparse", "fisher"]"""
+    """reward function to use. one of ["sparse", "fisher", "mse"]"""
     theta_state: str = "irt"
     """the state representation to use. one of ["irt", "ml"]"""
     # dataset_f: str = "data/test_data.csv"
@@ -139,7 +139,7 @@ def get_mask(
 
 def make_env(
         env_id, seed, dataset, device,
-        mask_answered, include_answered, include_uncertainty, detailed_answered, fisher_rewards, ml_theta,
+        mask_answered, include_answered, include_uncertainty, detailed_answered, fisher_rewards, sparse_MSE_rewards, ml_theta,
         time_limit_s=60 * 15
     ):
     def thunk():
@@ -152,10 +152,12 @@ def make_env(
             env = UncertaintyVectorObservation(env, dataset=dataset) # NOTE : don't hard code theta range
         elif detailed_answered:
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
-        if fisher_rewards:
-            env = FisherInfoRewards(env, dataset=dataset)
         if ml_theta:
             env = MLThetaObservationAndInfo(env, dataset=dataset, device=device)
+        if fisher_rewards:
+            env = FisherInfoRewards(env, dataset=dataset)
+        elif sparse_MSE_rewards:
+            env = SparseMSERewards(env, dataset=dataset)
         # env = RecordActions(env)  # High overhead in AsyncVectorEnv, so we will record actions in the main loop instead. Also messes up new evaluate implementation.
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env = gym.wrappers.FlattenObservation(env)
@@ -314,6 +316,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             "include_uncertainty": args.include_uncertainty,
             "detailed_answered": args.detailed_answered,
             "fisher_rewards": args.reward_function == "fisher",
+            "sparse_MSE_rewards": args.reward_function == "mse",
             "ml_theta": args.theta_state == "ml",
         }  # just need to specify: seed, dataset
     
@@ -536,7 +539,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             reset_times = []
 
         # PERIODICALLY EVAL
-        if global_step % args.eval_frequency == 0:
+        if global_step % args.eval_frequency == 0 and global_step >= args.eval_frequency:
             episodic_returns, thetas, true_thetas, histories, pruned = evaluator.evaluate(
                 agent=agent,
                 envs=eval_envs,

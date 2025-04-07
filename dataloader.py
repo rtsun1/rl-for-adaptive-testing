@@ -103,7 +103,9 @@ def dataloader_ml(batch_size_train: int = 128,
     # extract feature-label pair
     Y = raw["final_score"].unique()
     raw_X = raw.drop(columns="final_score")
+    raw_X = raw_X.sort_values(by=["student_id", "item_id"], ascending=[True, True])
     raw_X = raw_X.groupby("student_id")
+    
 
     if not code_ok:
         col_to_delete = ["item_id"] 
