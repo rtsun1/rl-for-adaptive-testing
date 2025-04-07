@@ -25,3 +25,4 @@ data/test_data.csv
 
 # optuna sqlite
 studies.db
+backup_studies.db
