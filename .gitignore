@@ -1,13 +1,11 @@
-# system
 .DS_Store
-
-# my test
+__pycache__
 .venv
-review
-dqn_paper_code
 
-# outdated
-old
+data
+test.py
+# no longer maintained since the performances are similar
+dt_d_static.py
 
 # too large
 data
