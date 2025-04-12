@@ -1,58 +1,61 @@
-from dt_d_adaptive import DTDiscreteAdaptive
-# from dt_d_static import DTDiscreteStatic
+from dt import DecisionTree
 from dt_eval import eval_dt
 
 import os
 import time
 import pickle
+import numpy as np
+import pandas as pd
 
 
 if __name__ == "__main__":
-    dir_name = "dt_models"
+    model_dir_name = "dt_models"
     extension = ".pkl"
     
     models = ["cart"]
-    num_classes_cand = [8]
+    num_classes_cand = [11]
 
-    time_aware = [True]
+    time_aware = [False]
     data_repr = ["median"]
-    time_choices = ["adaptive"]
+
+    max_time_min_set = np.arange(1, 31, 3, dtype=int)
+    max_qs_set = [np.inf]
 
     model_configs = [
         {"model_name": model, 
          "time_aware": t_aware, 
          "mean_or_median": mean_or_median,
-         "time_choice": time_choice,
          "num_classes": num_classes,
+         "max_time_min": max_time_min,
+         "max_qs": max_qs,
          "path": os.path.join(
-             dir_name, 
-             f"{model}_{time_choice}_{mean_or_median}{"_T" if t_aware else ""}_D{num_classes}{extension}")
+             model_dir_name, 
+             f"{model}_{num_classes}_{mean_or_median}{"_T" if t_aware else ""}_{max_time_min}{extension}")
         }
         for model in models
         for t_aware in time_aware
         for mean_or_median in data_repr
-        for time_choice in time_choices
         for num_classes in num_classes_cand
+        for max_time_min in max_time_min_set
+        for max_qs in max_qs_set
     ]
 
-    data_set = "val"
+    data_set = "test"
+    results_dir_name = "dt_results"
 
-    os.makedirs(dir_name, exist_ok=True)
+    os.makedirs(model_dir_name, exist_ok=True)
+    os.makedirs(results_dir_name, exist_ok=True)
 
-    # evaluate and save all models
-    RMSE_all = dict()
+    results_dict = dict()
+
+    # save and eval
     for config in model_configs:
-        if config["time_choice"] == "adaptive":
-            dt_model = DTDiscreteAdaptive(model=config["model_name"], 
-                                          time_aware=config["time_aware"], 
-                                          mean_or_median=config["mean_or_median"],
-                                          num_classes=config["num_classes"])
-            
-        # elif config["time_choice"] == "static":
-        #     dt_model = DTDiscreteStatic(model=config["model_name"], 
-        #                                   time_aware=config["time_aware"], 
-        #                                   mean_or_median=config["mean_or_median"],
-        #                                   num_classes=config["num_classes"])
+        dt_model = DecisionTree(model=config["model_name"], 
+                                time_aware=config["time_aware"], 
+                                mean_or_median=config["mean_or_median"],
+                                num_classes=config["num_classes"],
+                                max_time=config["max_time_min"]*60,
+                                max_qs=config["max_qs"])
         
         model_name = config["path"].split("/")[1].split(".")[0]
 
@@ -63,36 +66,33 @@ if __name__ == "__main__":
         end = time.time()
         print(f"{(end - start)/60:.2f} mins")
 
-        # evaluate using ml model
-        print(f"Evaluating {model_name} using ml model ... ", end="", flush=True)
-        RMSE_ml = eval_dt(dt_model, data_set, "ml")
-        print(f"{RMSE_ml:.6f}")
-
-        # evaluate by itself
-        print(f"Evaluating {model_name} by itself ... ", end="", flush=True)
-        RMSE_self = eval_dt(dt_model, data_set, "self")
-        print(f"{RMSE_self:.6f}")
-        
-        # save to dict
-        RMSE_all[model_name] = [RMSE_ml, RMSE_self]
-
+        # save
         with open(config["path"], "wb") as f:
             pickle.dump(dt_model, f)
         print(f"Saved to {config["path"]}\n")
 
-    # summary
-    print("=========== RMSE Summary ===========")
-    print("ml evaluation:")
-    RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1][0]))
-    for model_name, RMSE in RMSE_all_sorted.items():
-        print(f"{model_name:<25}: {RMSE[0]:.6f}")
-    print()
+        # eval by ml
+        print(f"Evaluating {model_name} using ml model ... ", end="", flush=True)
+        RMSE_ml = eval_dt(dt_model, data_set, "ml")
+        print(f"{RMSE_ml:.6f}")
 
-    print("self evaluation:")
-    RMSE_all_sorted = dict(sorted(RMSE_all.items(), key=lambda x: x[1][1]))
-    for model_name, RMSE in RMSE_all_sorted.items():
-        print(f"{model_name:<25}: {RMSE[1]:.6f}")
-    print()
+        # eval by itself
+        print(f"Evaluating {model_name} by itself ... ", end="", flush=True)
+        RMSE_self = eval_dt(dt_model, data_set, "self")
+        print(f"{RMSE_self:.6f}")
+
+        # save results
+        results_dict[config["max_time_min"]] = [RMSE_ml, RMSE_self]
+
+        print()
+
+    # save results into csv
+    results_df = pd.DataFrame(results_dict).T
+    results_df.reset_index(inplace=True)
+    results_df.columns = ["time_limit", "ml", "self"]
+    results_df.to_csv(os.path.join(results_dir_name, "dt_experiment.csv"), index=False)
+
+
 
 '''
 =========== RMSE Summary ===========

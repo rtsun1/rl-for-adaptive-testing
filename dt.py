@@ -8,9 +8,6 @@ from dataloader import dataset_rl as dataset_dt
 ABILITY_MIN = -4
 ABILITY_MAX = 4
 
-MAX_QUESTIONS = 15
-MAX_TIME = 900
-
 NUM_QUESTIONS = 244
 
 
@@ -64,16 +61,20 @@ class QuestionNode:
 
 
 
-class DTDiscreteAdaptive:
+class DecisionTree:
     def __init__(self, model: str,
                  time_aware: bool, 
                  mean_or_median: str, 
-                 num_classes: int):
+                 num_classes: int,
+                 max_time: int,
+                 max_qs):
         '''
         model: model name
         time_aware: want to divide e.g. IG by T or no
         mean_or_median: when computing time taken, use mean or median over the students
         num_classes: how many classes to split (-4, 4) ie ability range into
+        max_time: max time of the exam
+        max_qs: max number of the questions in the exam
         '''
 
         train_set = discretize_ability_train(num_classes)
@@ -89,6 +90,9 @@ class DTDiscreteAdaptive:
         self.model = model
         self.time_aware = time_aware
         self.mean_or_median = mean_or_median
+
+        self.max_time = max_time
+        self.max_qs = max_qs
 
         self.root_q = None
 
@@ -260,12 +264,10 @@ class DTDiscreteAdaptive:
 
         if root_q is None:
             return
-        if root_q.num_qs_so_far >= MAX_QUESTIONS or root_q.time_remain <= 0:
+        if root_q.num_qs_so_far >= self.max_qs or root_q.time_remain <= 0:
             return
         if root_q.current_response_table.empty:
             return
-
-        start = time.time()
 
         # left question
 
@@ -347,9 +349,6 @@ class DTDiscreteAdaptive:
                                     right=None)
         root_q.right = right_q
 
-        end = time.time()
-        # print(f"{end-start:.6f}")
-
         self.__build_dt(root_q.left)
         self.__build_dt(root_q.right)
 
@@ -363,7 +362,7 @@ class DTDiscreteAdaptive:
         item_id, time_taken = self.__select_best_q(current_response_table=self.response_table,
                                                    current_time_table=self.time_table)
 
-        time_remain_root = MAX_TIME-time_taken
+        time_remain_root = self.max_time-time_taken
 
         self.root_q = QuestionNode(item_id=item_id,
                                    time_taken=time_taken,
@@ -376,6 +375,8 @@ class DTDiscreteAdaptive:
                                     right=None)
 
         self.__build_dt(self.root_q)
+
+        # reduce memory
         self.__shrink_tree(self.root_q)
         self.time_table = None
         self.response_table = None

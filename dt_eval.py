@@ -9,15 +9,10 @@ import torch
 import torch.torch_version
 
 from dataloader import dataset_rl as dataset_dt
-from dt_d_adaptive import QuestionNode, DTDiscreteAdaptive
-# from dt_d_static import QuestionNode, DTDiscreteStatic
+from dt import QuestionNode, DecisionTree
 from ability_level_model import RegressionModel
 
-MAX_QUESTIONS = 15
-MAX_TIME = 900
-
 NUM_QUESTIONS = 244
-
 
 
 def generate_trajectories(model, useful_tables, device):
@@ -28,6 +23,8 @@ def generate_trajectories(model, useful_tables, device):
     [discrimination_table, difficulty_table, response_table, time_table, stu_ids] = [useful_tables[i] for i in range(5)]
 
     N = len(response_table)
+    MAX_TIME = model.max_time
+    MAX_QUESTIONS = model.max_qs
 
     trajectories = torch.full(size=(N, NUM_QUESTIONS, 4), fill_value=-1.0).to(device)
 
@@ -71,6 +68,8 @@ def get_ability_estimates_itself(model, useful_tables):
     [_, _, response_table, time_table, stu_ids] = [useful_tables[i] for i in range(5)]
 
     N = len(response_table)
+    MAX_TIME = model.max_time
+    MAX_QUESTIONS = model.max_qs
     ability_estimates = list()
 
     for i in range(N):
