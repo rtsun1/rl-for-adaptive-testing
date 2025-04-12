@@ -135,8 +135,11 @@ def eval_dt(dt_model, val_or_test: str, eval_model: str):
     if eval_model == "ml":
         trajectories = generate_trajectories(dt_model, useful_tables, device)
         with torch.no_grad():
+            # residuals = [ reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] for i in range(N) ]
+            # residuals_df = pd.DataFrame({"residual": residuals})
+
             RMSE = ( sum([ ( reg_model(trajectories[i].reshape(1, 244, 4)).item() - abilities[i] ) ** 2 for i in range(N)]) / N ) ** 0.5        # batched data doesn't work
-            return RMSE
+            return RMSE #, residuals_df
     
     else:
         ability_estimates = get_ability_estimates_itself(dt_model, useful_tables)
@@ -146,4 +149,21 @@ def eval_dt(dt_model, val_or_test: str, eval_model: str):
 
 
 if __name__ == "__main__":
-    pass
+    dt_model_1, dt_model_2 = None, None
+    with open("dt_models/cart_adaptive_median_D11.pkl", "rb") as f:
+        dt_model_1 = pickle.load(f)
+    
+    with open("dt_models/id3_adaptive_median_T_D8.pkl", "rb") as f:
+        dt_model_2 = pickle.load(f)
+    
+    rmse_1, residuals_df_1 = eval_dt(dt_model_1, "test", "ml")
+    rmse_2, residuals_df_2 = eval_dt(dt_model_2, "test", "ml")
+
+    print(f"{rmse_1:.6f}")
+    print(f"{rmse_2:.6f}")
+
+    # write residuals in csv
+    os.makedirs("dt_results", exist_ok=True)
+    residuals_df_1.to_csv("dt_results/dt_residuals_no_T.csv", index=False)
+    residuals_df_2.to_csv("dt_results/dt_residuals_T.csv", index=False)
+

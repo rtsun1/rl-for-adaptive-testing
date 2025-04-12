@@ -11,10 +11,10 @@ if __name__ == "__main__":
     dir_name = "dt_models"
     extension = ".pkl"
     
-    models = ["id3", "c45", "cart"]
-    num_classes_cand = [7, 8, 9, 10, 11, 12]
+    models = ["cart"]
+    num_classes_cand = [8]
 
-    time_aware = [False]
+    time_aware = [True]
     data_repr = ["median"]
     time_choices = ["adaptive"]
 

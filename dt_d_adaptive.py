@@ -260,7 +260,7 @@ class DTDiscreteAdaptive:
 
         if root_q is None:
             return
-        if root_q.num_qs_so_far >= 15 or root_q.time_remain <= 0:
+        if root_q.num_qs_so_far >= MAX_QUESTIONS or root_q.time_remain <= 0:
             return
         if root_q.current_response_table.empty:
             return
