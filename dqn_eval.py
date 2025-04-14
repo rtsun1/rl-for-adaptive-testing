@@ -68,8 +68,9 @@ class Evaluator:
 
 
 if __name__ == "__main__":
-    from dqn import QNetwork, make_env, Agent, MaskAgent
+    from dqn import QNetwork, make_env, Agent, MaskAgent, learn, Args
     from dataloader import dataset_rl
+
     for minutes in range(1, 33, 3):
         train_data, val_data, test_data = dataset_rl()
 
