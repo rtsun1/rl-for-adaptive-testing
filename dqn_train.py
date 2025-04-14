@@ -17,7 +17,7 @@ import numpy as np
 #     learning_starts: 57635
 #     train_frequency: 1
 cli_args = {
-    "lr": 0.0004929820354090957,
+    "learning_rate": 0.0004929820354090957,
     "reward_function": "fisher",
     "theta_state": "ml",
     "loss_function": "l1",
@@ -55,6 +55,6 @@ args.seed = np.random.randint(np.iinfo(np.int32).max)
 args.verbose = False
 args.track = True
 
-for minutes in range(1, 33, 3):
+for minutes in range(1, 4, 3):
     args.exp_name = f"dqn_{minutes}_minutes"
     learn(args)

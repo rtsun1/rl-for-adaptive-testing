@@ -61,48 +61,46 @@ class Args:
     """the id of the environment"""
     include_answered: bool = False
     """whether to include answered questions as a bit vector in the observation"""
-    include_uncertainty: bool = False
-    """whether to include uncertainty in ability estimate in the observation"""
     detailed_answered: bool = False
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
-    mask_answered: bool = True
+    mask_answered: bool = False
     """whether to mask actions that are already answered to -np.inf"""
     reward_function: str = "sparse"
     """reward function to use. one of ["sparse", "fisher", "mse"]"""
     theta_state: str = "irt"
     """the state representation to use. one of ["irt", "ml"]"""
     # dataset_f: str = "data/test_data.csv"
-    total_timesteps: int = 1000000
+    total_timesteps: int = 500000
     """total timesteps of the experiments"""
-    learning_rate: float = 0.00090311
+    learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
     lr_scheduler: str = "Constant"
     """the learning rate scheduler to use, one of ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"]"""
-    optimizer: str = "adamw"
+    optimizer: str = "adam"
     """the optimizer to use, one of ["adam", "adamw"]"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 132199
+    buffer_size: int = 10000
     """the replay memory buffer size"""
-    gamma: float = 1
+    gamma: float = 0.99
     """the discount factor gamma"""
-    tau: float = 0.13421
+    tau: float = 1.0
     """the target network update rate"""
-    target_network_frequency: int = 1665
+    target_network_frequency: int = 500
     """the timesteps it takes to update the target network"""
-    batch_size: int = 1925
+    batch_size: int = 128
     """the batch size of sample from the reply memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
-    end_e: float = 0.023137
+    end_e: float = 0.05
     """the ending epsilon for exploration"""
-    e_scheduler: str = "exponential"
+    e_scheduler: str = "linear"
     """the scheduler for epsilon, one of ["linear", "exponential"]"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 75528
+    learning_starts: int = 10000
     """timestep to start learning"""
-    train_frequency: int = 5
+    train_frequency: int = 10
     """the frequency of training"""
     loss_function: str = "mse"
     """the loss function to use, one of ["mse", "l1", "huber"]"""
@@ -112,7 +110,7 @@ class Args:
     """the number of episodes to evaluate"""
     eval_epsilon: float = 0.05
     """the epsilon for evaluation"""
-    eval_frequency: int = 5000000000
+    eval_frequency: int = 50000
 
 
 def get_mask(
@@ -311,7 +309,6 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             "device": device,
             "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
-            "include_uncertainty": args.include_uncertainty,
             "detailed_answered": args.detailed_answered,
             "fisher_rewards": args.reward_function == "fisher",
             "sparse_MSE_rewards": args.reward_function == "mse",
@@ -429,6 +426,8 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             global_step,
         )
 
+        # print("DEBUG obs : ", obs)
+        # print("DEBUG flattened_obs : ", flattened_obs)
 
         start_forward_time = time.time()
         actions = agent.get_action(obs, infos, epsilon=epsilon)
@@ -447,7 +446,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
         start_env_time = time.time()
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         env_times.append(time.time() - start_env_time)
-
+        # print(rewards)
         # Get done envs
         done_mask = np.logical_or(terminations, truncations)
 
@@ -503,8 +502,6 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
                         int(global_step / (time.time() - start_time)),
                         global_step,
                     )
-
-                # print("DEBUG : loss ", loss)
 
                 # optimize the model
                 optimizer.zero_grad()

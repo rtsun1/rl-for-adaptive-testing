@@ -46,7 +46,7 @@ class CATEnv(gym.Env):
         self.theta = self.init_theta
         self.true_theta = 0  # init in reset
         self.sid = None  # active student id
-        self.sid_idx = -1
+        # self.sid_idx = -1
         self.answered = set()  # items already answered
         self.responses = []  # student responses
         self.discrimination = []  # item discrimination
@@ -154,9 +154,9 @@ class CATEnv(gym.Env):
         super().reset(seed=seed)  # For seeding self.np_random
 
         # Select a student
-        # self.sid_idx = self.np_random.integers(self.students.shape[0])
+        self.sid_idx = self.np_random.integers(self.students.shape[0])
         # print(self.students.shape[0])
-        self.sid_idx += 1
+        # self.sid_idx += 1
         self.sid = self.students[self.sid_idx] 
 
         # Reset the state
