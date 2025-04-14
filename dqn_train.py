@@ -68,7 +68,7 @@ args.track = False
 28 - reuben, lawrence
 31 - tony, lawrence
 '''
-for minutes in [7, 10, 31]:
+for minutes in [1, 4]:
     args.exp_name = f"dqn_{minutes}_minutes"
     args.time_limit_s = 60 * minutes
     learn(args)
