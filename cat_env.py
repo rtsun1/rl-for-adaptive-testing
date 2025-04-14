@@ -155,8 +155,9 @@ class CATEnv(gym.Env):
 
         # Select a student
         # self.sid_idx = self.np_random.integers(self.students.shape[0])
+        # print(self.students.shape[0])
         self.sid_idx += 1
-        self.sid = self.students[self.sid_idx]
+        self.sid = self.students[self.sid_idx] 
 
         # Reset the state
         self.time_taken_s = 0

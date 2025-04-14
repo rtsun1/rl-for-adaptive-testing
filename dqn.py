@@ -65,44 +65,44 @@ class Args:
     """whether to include uncertainty in ability estimate in the observation"""
     detailed_answered: bool = False
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
-    mask_answered: bool = False
+    mask_answered: bool = True
     """whether to mask actions that are already answered to -np.inf"""
-    reward_function: str = "sparse"
+    reward_function: str = "mse"
     """reward function to use. one of ["sparse", "fisher", "mse"]"""
-    theta_state: str = "irt"
+    theta_state: str = "ml"
     """the state representation to use. one of ["irt", "ml"]"""
     # dataset_f: str = "data/test_data.csv"
-    total_timesteps: int = 500000
+    total_timesteps: int = 1000000
     """total timesteps of the experiments"""
-    learning_rate: float = 2.5e-4
+    learning_rate: float = 0.00090311
     """the learning rate of the optimizer"""
     lr_scheduler: str = "Constant"
     """the learning rate scheduler to use, one of ["ReduceLROnPlateau", "IncreaseLROnPlateau", "CosineAnnealing", "Constant"]"""
-    optimizer: str = "adam"
+    optimizer: str = "adamw"
     """the optimizer to use, one of ["adam", "adamw"]"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 10000
+    buffer_size: int = 132199
     """the replay memory buffer size"""
     gamma: float = 1
     """the discount factor gamma"""
-    tau: float = 1.0
+    tau: float = 0.13421
     """the target network update rate"""
-    target_network_frequency: int = 10000
+    target_network_frequency: int = 1665
     """the timesteps it takes to update the target network"""
-    batch_size: int = 1024
+    batch_size: int = 1925
     """the batch size of sample from the reply memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
-    end_e: float = 0.05
+    end_e: float = 0.023137
     """the ending epsilon for exploration"""
-    e_scheduler: str = "linear"
+    e_scheduler: str = "exponential"
     """the scheduler for epsilon, one of ["linear", "exponential"]"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 10000
+    learning_starts: int = 75528
     """timestep to start learning"""
-    train_frequency: int = 10
+    train_frequency: int = 5
     """the frequency of training"""
     loss_function: str = "mse"
     """the loss function to use, one of ["mse", "l1", "huber"]"""
@@ -112,7 +112,7 @@ class Args:
     """the number of episodes to evaluate"""
     eval_epsilon: float = 0.05
     """the epsilon for evaluation"""
-    eval_frequency: int = 50000
+    eval_frequency: int = 5000000000
 
 
 def get_mask(
