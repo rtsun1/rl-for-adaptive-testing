@@ -17,7 +17,9 @@ import numpy as np
 #     learning_starts: 57635
 #     train_frequency: 1
 cli_args = {
-    "lr": 0.0004929820354090957,
+    "learning_rate": 0.0004929820354090957,
+    "gamma": 1,
+    "tau": 1.0,
     "reward_function": "fisher",
     "theta_state": "ml",
     "loss_function": "l1",
@@ -39,7 +41,7 @@ N_STARTUP_TRIALS = 10  # num of random sampling trials before using TPE sampler
 N_EVALUATIONS = 1  # num of evaluations per trial
 N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
-N_EVAL_EPISODES = 1000  # num of episodes used for evaluating the agent
+N_EVAL_EPISODES = 10  # num of episodes used for evaluating the agent
 
 ENV_ID = "CAT-v0"
 EVAL_EPSILON = 0
