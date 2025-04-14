@@ -305,7 +305,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
     # env setup
     main_env_config = {
             "env_id": args.env_id,
-            "time_limit_s": 60.0 * 15,  # 15 minutes
+            "time_limit_s": args.time_limit_s,  # 15 minutes
             "device": device,
             "mask_answered": args.mask_answered,
             "include_answered": args.include_answered,
