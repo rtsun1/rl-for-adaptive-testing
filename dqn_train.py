@@ -36,7 +36,7 @@ args = Args(**cli_args)
 N_TRIALS = 10_000  # max num of trials
 N_STARTUP_TRIALS = 10  # num of random sampling trials before using TPE sampler
 #N_EVALUATIONS = 6  # num of evaluations per trial
-N_EVALUATIONS = 8  # num of evaluations per trial
+N_EVALUATIONS = 1  # num of evaluations per trial
 N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
 N_EVAL_EPISODES = 1000  # num of episodes used for evaluating the agent
@@ -52,9 +52,23 @@ args.eval_episodes = N_EVAL_EPISODES
 args.eval_frequency = EVAL_FREQ
 args.seed = np.random.randint(np.iinfo(np.int32).max)
 # Turn off logging in a trial
-args.verbose = False
-args.track = True
+args.verbose = True
+args.track = False
 
-for minutes in range(1, 4, 3):
+'''
+1 - aaron
+4 - aaron
+7 - tony
+10 - tony
+13 - yanze
+16 - yanze
+19 - maher
+22 - maher, lawrence
+25 - reuben
+28 - reuben, lawrence
+31 - tony, lawrence
+'''
+for minutes in [7, 10, 31]:
     args.exp_name = f"dqn_{minutes}_minutes"
+    args.time_limit_s = 60 * minutes
     learn(args)
