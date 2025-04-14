@@ -53,8 +53,21 @@ args.eval_frequency = EVAL_FREQ
 args.seed = np.random.randint(np.iinfo(np.int32).max)
 # Turn off logging in a trial
 args.verbose = False
-args.track = True
+args.track = False
 
-for minutes in range(1, 33, 3):
+'''
+1 - aaron
+4 - aaron
+7 - tony
+10 - tony
+13 - yanze
+16 - yanze
+19 - maher
+22 - maher
+25 - reuben
+28 - reuben
+31 - tony
+'''
+for minutes in [7, 10, 31]:
     args.exp_name = f"dqn_{minutes}_minutes"
     learn(args)
