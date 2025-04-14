@@ -63,12 +63,12 @@ def sankey_from_action_sequences(sequences, min_frequency=1, max_depth=None):
     return fig
 
 from pprint import pprint
-datasets = [np.load("runs/CAT-v0__dqn__42__1742417085/results.npz", allow_pickle=True)]
+datasets = [np.load("runs/CAT-v0__greedy__42__1743530161/results.npz", allow_pickle=True)]
 
 data = datasets[0]["histories"].item()
-counts = {}
-for i in range(len(data)):
-    counts[i] = counts.get(data[i][0], 0) + 1
+# counts = {}
+# for i in range(len(data)):
+#     counts[i] = counts.get(data[i][0], 0) + 1
 # pprint(counts)
 
 sankey(datasets)

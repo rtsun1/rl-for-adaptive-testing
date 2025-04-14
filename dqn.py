@@ -16,7 +16,7 @@ from stable_baselines3.common.buffers import ReplayBuffer, DictReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from gymnasium.spaces.utils import flatten
 
-from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, SparseMSERewards, MaskObservation, MLThetaObservationAndInfo, UncertaintyVectorObservation
+from cat_wrappers import AnsweredVectorObservation, DetailedAnsweredVectorObservation, RecordActions, FisherInfoRewards, SparseMSERewards, MaskObservation, MLThetaObservationAndInfo
 
 from typing import Callable
 from tqdm import tqdm
@@ -67,9 +67,9 @@ class Args:
     """whether to include answered questions as a detailed vector (disc, diff, response, response time) in the observation"""
     mask_answered: bool = True
     """whether to mask actions that are already answered to -np.inf"""
-    reward_function: str = "mse"
+    reward_function: str = "sparse"
     """reward function to use. one of ["sparse", "fisher", "mse"]"""
-    theta_state: str = "ml"
+    theta_state: str = "irt"
     """the state representation to use. one of ["irt", "ml"]"""
     # dataset_f: str = "data/test_data.csv"
     total_timesteps: int = 1000000
@@ -139,7 +139,7 @@ def get_mask(
 
 def make_env(
         env_id, seed, dataset, device,
-        mask_answered, include_answered, include_uncertainty, detailed_answered, fisher_rewards, sparse_MSE_rewards, ml_theta,
+        mask_answered, include_answered, detailed_answered, fisher_rewards, sparse_MSE_rewards, ml_theta,
         time_limit_s=60 * 15
     ):
     def thunk():
@@ -148,8 +148,6 @@ def make_env(
             raise ValueError("You are including both binary answered and detailed answered. This is likely a mistake.")
         if include_answered:
             env = AnsweredVectorObservation(env)
-        if include_uncertainty:
-            env = UncertaintyVectorObservation(env, dataset=dataset) # NOTE : don't hard code theta range
         elif detailed_answered:
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if ml_theta:

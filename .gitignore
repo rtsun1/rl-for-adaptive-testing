@@ -23,3 +23,7 @@ logs/
 
 # optuna sqlite
 studies.db
+<<<<<<< HEAD
+=======
+backup_studies.db
+>>>>>>> 30a0479f8b400602250e50a9844111334c76acd6
