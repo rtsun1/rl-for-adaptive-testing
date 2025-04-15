@@ -32,7 +32,7 @@ class Args:
     """whether to divide the Fisher Information by the average time to answer the question"""
 
     # Evaluation specific arguments
-    eval_episodes: int = 10_000
+    eval_episodes: int = 4272#10_000
     """the number of episodes/students to evaluate"""
     dataset: str = "val"
     """the dataset to use for evaluation [train, val, test]"""
@@ -59,72 +59,85 @@ def greedy_fi(args: Args):
         data = val_data
     elif args.dataset == "test":
         data = test_data
+    
+    data = test_data
+    #for time in range(60, 60 + (3*60)*10, 60*3):
+    for time in [1680]:
+        for greedy in [False]:
+            for time_aware in [True]:
+                print(f"Running with time: {time}, {"greedy" if greedy else "ml"}, {"Time_Aware" if time_aware else "Not_Time_Aware"}")
+                env = gym.make("CAT-v0", dataset=data, time_limit_s=time)  # 15 minutes
+                env = RecordActions(env)
+                #if args.ml == "ml":
+                if not greedy:
+                    print("Using ML estimator")
+                    env = MLThetaObservationAndInfo(env, data, "cuda")
+                #elif args.ml == "weighted":
+                #    env = WeightedMLThetaObservationAndInfo(env, data, "cuda")
+                # Greedy FI Algorithm
+                obs, info = env.reset()
 
-    env = gym.make("CAT-v0", dataset=data, time_limit_s=args.time_limit_s)  # 15 minutes
-    env = RecordActions(env)
-    if args.ml == "ml":
-        print("Using ML estimator")
-        env = MLThetaObservationAndInfo(env, data, "cuda")
-    elif args.ml == "weighted":
-        env = WeightedMLThetaObservationAndInfo(env, data, "cuda")
-    # Greedy FI Algorithm
-    obs, info = env.reset()
+                questions = data.drop_duplicates(subset="item_id", keep="first")
+                # sort questions just like the env does (may be unnecessary bc env sorts in place)
+                questions = questions.sort_values(by="item_id")  # sorting inplace gives a warning
+                questions.reset_index(drop=True, inplace=True)
 
-    questions = data.drop_duplicates(subset="item_id", keep="first")
-    # sort questions just like the env does (may be unnecessary bc env sorts in place)
-    questions = questions.sort_values(by="item_id")  # sorting inplace gives a warning
-    questions.reset_index(drop=True, inplace=True)
+                n_items = len(questions)
+                diffs = questions["difficulty"].values
+                discs = questions["discrimination"].values
+                thetas = np.zeros(n)  # estimated thetas
+                true_thetas = np.zeros(n)
 
-    n_items = len(questions)
-    diffs = questions["difficulty"].values
-    discs = questions["discrimination"].values
-    thetas = np.zeros(n)  # estimated thetas
-    true_thetas = np.zeros(n)
+                pbar = tqdm.tqdm(range(n))
+                for x in pbar:  # n students
+                    observation, info = env.reset(seed=42 + x)  # info gathered each reset
+                    # print(observation)
+                    theta = observation["theta"]
+                    fisher_inf = np.zeros(n_items)
+                    episode_over = False
+                    G = 0
+                    answered = set()
 
-    pbar = tqdm.tqdm(range(n))
-    for x in pbar:  # n students
-        observation, info = env.reset(seed=42 + x)  # info gathered each reset
-        # print(observation)
-        theta = observation["theta"]
-        fisher_inf = np.zeros(n_items)
-        episode_over = False
-        G = 0
-        answered = set()
+                    ### TRAINING the short Theta over 1 episode
+                    while not episode_over: 
 
-        ### TRAINING the short Theta over 1 episode
-        while not episode_over: 
+                        # Calculate FI for all items
+                        # toc = time.time()
+                        fisher_inf = batch_fisher_information(diffs, discs, theta)
+                        mask = get_mask(n_items, [answered])  # get_mask assumes answered is from a vector env so wrap with []
+                        fisher_inf[np.logical_not(mask)] = -np.inf
+                        # tic = time.time()
+                        # print(tic - toc)
+                        if time_aware:
+                            fisher_inf /= info["average_times"]  # divide by avg time to answer the question
+                        # Select the action with the highest FI
+                        action = np.argmax(fisher_inf)
+                        answered.add(action)
+                        observation, reward, terminated, truncated, info = env.step(action)
+                        
+                        # Update theta
+                        theta = observation["theta"]
+                        G += reward
+                        # Log
+                        #print(action, observation, reward)
+                        
+                        episode_over = terminated or truncated
+                    
+                    # calculate true theta estimate for the current student
+                    # add to items
+                    thetas[x] = info["theta"]
+                    true_thetas[x] = info["true_theta"]
 
-            # Calculate FI for all items
-            # toc = time.time()
-            fisher_inf = batch_fisher_information(diffs, discs, theta)
-            mask = get_mask(n_items, [answered])  # get_mask assumes answered is from a vector env so wrap with []
-            fisher_inf[np.logical_not(mask)] = -np.inf
-            # tic = time.time()
-            # print(tic - toc)
-            if time_aware:
-                fisher_inf /= info["average_times"]  # divide by avg time to answer the question
-            # Select the action with the highest FI
-            action = np.argmax(fisher_inf)
-            answered.add(action)
-            observation, reward, terminated, truncated, info = env.step(action)
-            
-            # Update theta
-            theta = observation["theta"]
-            G += reward
-            # Log
-            #print(action, observation, reward)
-            
-            episode_over = terminated or truncated
-        
-        # calculate true theta estimate for the current student
-        # add to items
-        thetas[x] = info["theta"]
-        true_thetas[x] = info["true_theta"]
+                histories = np.array([0], dtype=object)
+                histories[0] = info["action_history"]  # trying to mimic how vector env stores action history
+                env.close()
 
-    histories = np.array([0], dtype=object)
-    histories[0] = info["action_history"]  # trying to mimic how vector env stores action history
-    env.close()
-    return thetas, true_thetas, histories
+                vals = [thetas, true_thetas]
+                vals = np.array(vals)
+                np.save(f"{"greedy" if greedy else "ml"}_{"time_aware_" if time_aware else ""}{time}_222222", vals)
+
+
+    #return thetas, true_thetas, histories
 
 
 if __name__ == "__main__":
@@ -135,7 +148,7 @@ if __name__ == "__main__":
     thetas, true_thetas, histories = greedy_fi(
         args
     )
-
+    """
     # Theta RMSE:
     print("Estimated Thetas:")
     print(thetas.round(2))
@@ -161,3 +174,4 @@ if __name__ == "__main__":
     )
     print(f"Results saved in runs/{run_name}/results.npz")
     print("Done!")
+    """

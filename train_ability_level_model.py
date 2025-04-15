@@ -15,6 +15,9 @@ import plotly.figure_factory as ff
 import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.stats import binom, wilcoxon, ttest_ind
+from statsmodels.stats.multitest import multipletests
 
 from dataclasses import dataclass
 import os
@@ -41,6 +44,8 @@ class Args:
     """Path of the model weights to load [last, best, path_to_weights.pt]"""
     mode: str = "train"
     """Mode to run [train, test]"""
+    train_seed: int = 0
+    """Seed for training"""
     test_loss: str = "RMSE"
     """Loss function to use for testing [MSE, MAE, RMSE]"""
     test_epochs: int = 3
@@ -154,6 +159,10 @@ def train_ability_level_model(args: Args,
                               device=torch.device('cuda'), 
                               eval_intervals: int=30) -> None:
     torch.cuda.empty_cache()
+    seed = args.train_seed
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
 
     print("Loading model...")
     model = RegressionModel().to(device)
@@ -312,8 +321,22 @@ if __name__ == "__main__":
         model.load_state_dict(torch.load(args.model_path, weights_only=True))
         data.shuffle = True
 
+        fig, ax = plt.subplots()
+        line1, = ax.plot([], [], label='ML Estimator', color='blue')
+        line2, = ax.plot([], [], label='EAP Estimator', color='orange')
+        fill_ML = fill_EAP = None
+
+        fig_2, ax_2 = plt.subplots()
+        line3, = ax_2.plot([], [], label='p-values', color='red')
+        line4, = ax_2.plot([], [], label='Significance Level (α=0.05)', color='black', linestyle='--')
+
         pbar_test = tqdm.tqdm(range(args.test_question_range[0], args.test_question_range[1]+1))
+        ML_bounds = [[], [], []]
+        EAP_bounds = [[], [], []]
+        num_questions = []
+        p_values = []
         for i in pbar_test:
+            num_questions.append(i)
             TEST_ESTIMATES = [[], [], []]
             TEST_LOSSES = [[], []]
             avg_test_loss = 0.0
@@ -326,7 +349,66 @@ if __name__ == "__main__":
             avg_test_loss /= j+1
             avg_true_func_loss /= j+1
 
+            # Calculate the tolerance interval for the test losses
+            ML_bounds[0].append(avg_test_loss)
+            EAP_bounds[0].append(avg_true_func_loss)
+            sorted_ML_rmse = np.sort(TEST_LOSSES[0])
+            sorted_EAP_rmse = np.sort(TEST_LOSSES[1])
 
+            confidence = 0.95
+            proportion = 0.90
+            v = len(sorted_ML_rmse) - binom.ppf(confidence, len(sorted_ML_rmse), proportion)
+            upper_index = np.ceil(len(sorted_ML_rmse) + 1 - v/2).astype(int)
+            lower_index = np.floor(v/2).astype(int)
+
+            ML_bounds[1].append(sorted_ML_rmse[lower_index])
+            ML_bounds[2].append(sorted_ML_rmse[upper_index])
+            EAP_bounds[1].append(sorted_EAP_rmse[lower_index])
+            EAP_bounds[2].append(sorted_EAP_rmse[upper_index])
+
+            plt.figure(1)
+
+            line1.set_data(num_questions, ML_bounds[0])
+            line2.set_data(num_questions, EAP_bounds[0])
+
+            if fill_ML: fill_ML.remove()
+            if fill_EAP: fill_EAP.remove()
+            fill_ML = ax.fill_between(num_questions, ML_bounds[1], ML_bounds[2], color='blue', alpha=0.2)
+            fill_EAP = ax.fill_between(num_questions, EAP_bounds[1], EAP_bounds[2], color='orange', alpha=0.2)
+
+            ax.relim()
+            ax.autoscale_view()
+            ax.set_xlabel("Number of Random Questions")
+            ax.set_ylabel(args.test_loss)
+            ax.set_title(f"Performance of ML and EAP Estimators \n(Tolerance Interval: p={proportion}, 1-α={confidence})")
+            handles, labels = plt.gca().get_legend_handles_labels()
+            ax.legend(handles[::-1], labels[::-1])
+            ax.grid(True)
+            ax.set_ylim(0, 2)
+            
+            fig.savefig("graphs/img/performance_view.png", dpi=300, bbox_inches='tight')
+
+            # compute wilcoxon test to mark the difference between the two models
+            stat, p = wilcoxon(TEST_LOSSES[0], TEST_LOSSES[1])
+            p_values.append(p)
+
+            reject, pvals_corrected, _, _ = multipletests(p_values, alpha=0.05, method='fdr_bh')
+
+            plt.figure(2)
+            line3.set_data(num_questions, pvals_corrected)
+            line4.set_data(num_questions, [0.05] * len(num_questions))
+
+            ax_2.relim()
+            ax_2.autoscale_view()
+            ax_2.set_xlabel("Number of Random Questions")
+            ax_2.set_ylabel("p-value")
+            ax_2.set_title("Wilcoxon Signed-Rank Test p-values")
+            ax_2.legend()
+            ax_2.grid(True)
+            fig_2.savefig("graphs/img/wilcoxon_test.png", dpi=300, bbox_inches='tight')
+            
+
+            """
             mean_test_losses = np.mean(TEST_LOSSES, axis=1)
             TEST_ESTIMATES = np.array(TEST_ESTIMATES).reshape(3, -1)
             #fig_estimates = ff.create_distplot(TEST_ESTIMATES, ["ML Model Ability Estimate", "EAP Ability Estimate", "Target Ability Level"], bin_size=0.1)
@@ -356,3 +438,8 @@ if __name__ == "__main__":
             fig_losses.write_html(f"graphs/html/losses_{i}.html")
             #fig_losses.write_image("graphs/img/losses_" + str(i) + ".pdf", engine="kaleido")
             #"""
+
+            # seeds:
+            # 111111
+            # 222222
+            # 333333
