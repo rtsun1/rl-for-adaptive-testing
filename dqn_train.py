@@ -39,7 +39,7 @@ N_TRIALS = 10_000  # max num of trials
 N_STARTUP_TRIALS = 10  # num of random sampling trials before using TPE sampler
 #N_EVALUATIONS = 6  # num of evaluations per trial
 N_EVALUATIONS = 1  # num of evaluations per trial
-N_TIMESTEPS = 10  # num of steps per trial
+N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
 N_EVAL_EPISODES = 10  # num of episodes used for evaluating the agent
 
@@ -70,7 +70,7 @@ args.mask_answered = True
 25 - reuben
 28 - reuben, lawrence
 '''
-for minutes in [4]:
+for minutes in [1, 4]:
     args.exp_name = f"dqn_{minutes}_minutes"
     args.time_limit_s = 60 * minutes
     learn(args)
