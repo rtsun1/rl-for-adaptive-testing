@@ -6,6 +6,7 @@ data
 test.py
 # no longer maintained since the performances are similar
 dt_d_static.py
+graph_ref.py
 
 # too large
 data
