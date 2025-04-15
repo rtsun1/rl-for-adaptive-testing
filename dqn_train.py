@@ -36,7 +36,7 @@ cli_args = {
 
 args = Args(**cli_args)
 N_EVALUATIONS = 1  # num of evaluations per trial
-N_TIMESTEPS = 1_000_00  # num of steps per trial
+N_TIMESTEPS = 1_000_000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
 N_EVAL_EPISODES = 10  # num of episodes used for evaluating the agent
 
