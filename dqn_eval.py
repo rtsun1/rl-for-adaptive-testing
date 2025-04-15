@@ -87,6 +87,7 @@ if __name__ == "__main__":
             "fisher_rewards": True,  # doesn't matter for evaluation
             "sparse_MSE_rewards":False,
             "ml_theta": True,
+            "ml_checkpoint": "ml_weights/7.pt",  # depends on seed of 1111, 2222, 7
         }
         seed = np.random.randint(0, 2**32 - 1)
         envs = gym.vector.SyncVectorEnv(  # Async breaks ml theta state (using cuda in forked subprocess) in linux

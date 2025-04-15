@@ -55,6 +55,7 @@ class Args:
     # Environment specific arguments
     time_limit_s: int = 60 * 15
     """the time limit for each episode/student in seconds"""
+    ml_checkpoint: str = "ml_theta_checkpoint.pth"
 
     # Algorithm specific arguments
     env_id: str = "CAT-v0"
@@ -138,7 +139,7 @@ def get_mask(
 def make_env(
         env_id, seed, dataset, device,
         mask_answered, include_answered, detailed_answered, fisher_rewards, sparse_MSE_rewards, ml_theta,
-        time_limit_s=60 * 15
+        ml_checkpoint, time_limit_s=60 * 15
     ):
     def thunk():
         env = gym.make(env_id, dataset=dataset, time_limit_s=time_limit_s)
@@ -149,7 +150,7 @@ def make_env(
         elif detailed_answered:
             env = DetailedAnsweredVectorObservation(env, dataset=dataset)
         if ml_theta:
-            env = MLThetaObservationAndInfo(env, dataset=dataset, device=device)
+            env = MLThetaObservationAndInfo(env, dataset=dataset, device=device, checkpoint=ml_checkpoint)
         if fisher_rewards:
             env = FisherInfoRewards(env, dataset=dataset)
         elif sparse_MSE_rewards:
@@ -313,6 +314,7 @@ def learn(args: Args, evaluator: Evaluator = None, dict_args = {}):
             "fisher_rewards": args.reward_function == "fisher",
             "sparse_MSE_rewards": args.reward_function == "mse",
             "ml_theta": args.theta_state == "ml",
+            "ml_checkpoint": args.ml_checkpoint,
         }  # just need to specify: seed, dataset
     
     # 4 envs

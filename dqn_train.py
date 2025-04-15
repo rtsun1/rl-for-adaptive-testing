@@ -35,11 +35,8 @@ cli_args = {
 }
 
 args = Args(**cli_args)
-N_TRIALS = 10_000  # max num of trials
-N_STARTUP_TRIALS = 10  # num of random sampling trials before using TPE sampler
-#N_EVALUATIONS = 6  # num of evaluations per trial
 N_EVALUATIONS = 1  # num of evaluations per trial
-N_TIMESTEPS = 1_000_000  # num of steps per trial
+N_TIMESTEPS = 1000  # num of steps per trial
 EVAL_FREQ = int(N_TIMESTEPS / N_EVALUATIONS)  # num of steps before evaluating the agent
 N_EVAL_EPISODES = 10  # num of episodes used for evaluating the agent
 
@@ -52,7 +49,6 @@ args.total_timesteps = N_TIMESTEPS
 args.eval_epsilon = EVAL_EPSILON
 args.eval_episodes = N_EVAL_EPISODES
 args.eval_frequency = EVAL_FREQ
-args.seed = np.random.randint(np.iinfo(np.int32).max)
 # Turn off logging in a trial
 args.verbose = True
 args.track = False
@@ -70,7 +66,12 @@ args.mask_answered = True
 25 - reuben
 28 - reuben, lawrence
 '''
-for minutes in [1, 4]:
-    args.exp_name = f"dqn_{minutes}_minutes"
-    args.time_limit_s = 60 * minutes
-    learn(args)
+
+for seed in [7, 111111, 222222]:
+    args.seed = seed
+    args.ml_checkpoint = "ml_weights/" + str(seed) + ".pt"
+
+    for minutes in [7, 10]:
+        args.exp_name = f"dqn_{minutes}_minutes_{seed}_seed"
+        args.time_limit_s = 60 * minutes
+        learn(args)

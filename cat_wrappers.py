@@ -98,10 +98,10 @@ class SparseMSERewards(Wrapper):
         return obs, reward, terminated, truncated, info
 
 class MLThetaObservationAndInfo(Wrapper):
-    def __init__(self, env, dataset, device="cpu"):
+    def __init__(self, env, dataset, device="cpu", checkpoint="ml_weights/best_model.pt"):
         super().__init__(env)
         self.reg_model = RegressionModel().to(device)
-        self.reg_model.load_state_dict(torch.load("ml_weights/best_model.pt", weights_only=True, map_location=device))
+        self.reg_model.load_state_dict(torch.load(checkpoint, weights_only=True, map_location=device))
         self.dataset = dataset
         self.n_items = env.action_space.n
         self.device = device
